@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { load, save } from "./storage.js";
 
 const PHASES = { IDLE: "idle", TOEPING: "toeping", PICK_WINNER: "pick_winner" };
@@ -21,7 +21,6 @@ const pill = {
 
 const RECENT_NAMES_DEFAULT = ["Max", "Tim", "Sanne", "Luuk", "Emma", "Daan"];
 
-// Yahtzee categories
 const YZ_UPPER = [
   { key: "ones", label: "Ones", desc: "Total of ones" },
   { key: "twos", label: "Twos", desc: "Total of twos" },
@@ -41,6 +40,13 @@ const YZ_LOWER = [
 ];
 const YZ_ALL = [...YZ_UPPER, ...YZ_LOWER];
 
+// ─── Auto-save hook: saves state to localStorage on every change ───
+function useAutoSave(key, state) {
+  useEffect(() => { save(key, state); }, [key, state]);
+}
+
+function clearSavedGame() { save("activeGame", null); }
+
 function NumStepper({ value, onChange, min, max, color = C.accent, label, suffix }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 12, background: C.surface, padding: "10px 16px", borderRadius: 12 }}>
@@ -58,12 +64,19 @@ export default function App() {
   const [screen, setScreen] = useState("home");
   const [selectedGame, setSelectedGame] = useState(null);
   const [players, setPlayers] = useState([]);
+  const [resumeData, setResumeData] = useState(null);
   const [recentNames, setRecentNames] = useState(load("recentNames", RECENT_NAMES_DEFAULT));
   const [gameSettings, setGameSettings] = useState(load("gameSettings", {
     eliminationLimit: 15,
     bbMaxCards: 8, bbBaseBonus: 10, bbUnderPenalty: -3, bbOverPenalty: -2, bbBonusPerTrick: 3, bbNoTrumpRound: true,
     yzMultiple: false,
   }));
+
+  // Check for saved game on mount
+  useEffect(() => {
+    const saved = load("activeGame", null);
+    if (saved && saved.gameId) setResumeData(saved);
+  }, []);
 
   useEffect(() => { save("gameSettings", gameSettings); }, [gameSettings]);
   useEffect(() => { save("recentNames", recentNames); }, [recentNames]);
@@ -75,35 +88,64 @@ export default function App() {
   };
   const startGame = (game) => { setSelectedGame(game); setScreen("setup"); };
   const beginGame = () => { players.forEach((p) => addToRecent(p.name)); setScreen("game"); };
-  const backToHome = () => { setScreen("home"); setPlayers([]); };
+  const backToHome = () => { clearSavedGame(); setScreen("home"); setPlayers([]); setResumeData(null); };
+
+  const resumeGame = () => {
+    if (!resumeData) return;
+    const gameMap = {
+      toepen: { id: "toepen", name: "Toepen", emoji: "🃏", color: C.accent },
+      boerenbridge: { id: "boerenbridge", name: "Boerenbridge", emoji: "🂡", color: C.purple },
+      yahtzee: { id: "yahtzee", name: "Yahtzee", emoji: "🎲", color: C.orange },
+      counter: { id: "counter", name: "Counter", emoji: "🔢", color: C.blue },
+    };
+    setSelectedGame(gameMap[resumeData.gameId]);
+    setScreen("game");
+  };
+
+  const dismissResume = () => { clearSavedGame(); setResumeData(null); };
 
   return (
     <div style={{ fontFamily: "'DM Sans','Avenir Next',system-ui,sans-serif", background: C.bg, color: C.text, minHeight: "100vh", maxWidth: 480, margin: "0 auto" }}>
-      {screen === "home" && <HomeScreen onSelect={startGame} />}
+      {screen === "home" && <HomeScreen onSelect={startGame} resumeData={resumeData} onResume={resumeGame} onDismissResume={dismissResume} />}
       {screen === "setup" && <SetupScreen game={selectedGame} players={players} setPlayers={setPlayers} settings={gameSettings} updateSetting={updateSetting} recentNames={recentNames} addToRecent={addToRecent} onStart={beginGame} onBack={backToHome} />}
-      {screen === "game" && selectedGame.id === "toepen" && <ToepGameScreen game={selectedGame} initialPlayers={players} eliminationLimit={gameSettings.eliminationLimit} recentNames={recentNames} addToRecent={addToRecent} onExit={backToHome} />}
-      {screen === "game" && selectedGame.id === "counter" && <CounterGameScreen game={selectedGame} initialPlayers={players} recentNames={recentNames} addToRecent={addToRecent} onExit={backToHome} />}
-      {screen === "game" && selectedGame.id === "boerenbridge" && <BBGameScreen game={selectedGame} initialPlayers={players} settings={gameSettings} recentNames={recentNames} addToRecent={addToRecent} onExit={backToHome} />}
-      {screen === "game" && selectedGame.id === "yahtzee" && <YahtzeeGameScreen game={selectedGame} initialPlayers={players} settings={gameSettings} recentNames={recentNames} addToRecent={addToRecent} onExit={backToHome} />}
+      {screen === "game" && selectedGame.id === "toepen" && <ToepGameScreen game={selectedGame} initialPlayers={players} eliminationLimit={gameSettings.eliminationLimit} recentNames={recentNames} addToRecent={addToRecent} onExit={backToHome} savedState={resumeData?.gameId === "toepen" ? resumeData : null} />}
+      {screen === "game" && selectedGame.id === "counter" && <CounterGameScreen game={selectedGame} initialPlayers={players} recentNames={recentNames} addToRecent={addToRecent} onExit={backToHome} savedState={resumeData?.gameId === "counter" ? resumeData : null} />}
+      {screen === "game" && selectedGame.id === "boerenbridge" && <BBGameScreen game={selectedGame} initialPlayers={players} settings={gameSettings} recentNames={recentNames} addToRecent={addToRecent} onExit={backToHome} savedState={resumeData?.gameId === "boerenbridge" ? resumeData : null} />}
+      {screen === "game" && selectedGame.id === "yahtzee" && <YahtzeeGameScreen game={selectedGame} initialPlayers={players} settings={gameSettings} recentNames={recentNames} addToRecent={addToRecent} onExit={backToHome} savedState={resumeData?.gameId === "yahtzee" ? resumeData : null} />}
     </div>
   );
 }
 
 // ═══════════════════════════════════════════
-// HOME SCREEN — VERTICAL LAYOUT
+// HOME SCREEN
 // ═══════════════════════════════════════════
-function HomeScreen({ onSelect }) {
+function HomeScreen({ onSelect, resumeData, onResume, onDismissResume }) {
   const games = [
     { id: "toepen", name: "Toepen", emoji: "🃏", color: C.accent },
     { id: "boerenbridge", name: "Boerenbridge", emoji: "🂡", color: C.purple },
     { id: "yahtzee", name: "Yahtzee", emoji: "🎲", color: C.orange },
     { id: "counter", name: "Counter", emoji: "🔢", color: C.blue },
   ];
+  const resumeGameInfo = resumeData ? games.find((g) => g.id === resumeData.gameId) : null;
 
   return (
     <div style={{ padding: "60px 20px 40px" }}>
       <h1 style={{ fontSize: 28, fontWeight: 800, marginBottom: 4, letterSpacing: -0.5 }}>Score Keeper</h1>
       <p style={{ color: C.textDim, fontSize: 14, marginBottom: 32 }}>Pick a game to get started</p>
+
+      {/* Resume banner */}
+      {resumeGameInfo && (
+        <div style={{ background: C.green + "18", border: `1px solid ${C.green}44`, borderRadius: 12, padding: "14px 16px", marginBottom: 16 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: C.green, marginBottom: 8 }}>
+            {resumeGameInfo.emoji} Game in progress — {resumeGameInfo.name}
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={onResume} style={{ ...pill, flex: 1, padding: "10px 0", background: C.green, color: C.bg, fontWeight: 800, borderRadius: 10, fontSize: 14 }}>Resume</button>
+            <button onClick={onDismissResume} style={{ ...pill, padding: "10px 16px", background: C.surface, color: C.textDim, border: `1px solid ${C.border}`, borderRadius: 10 }}>Discard</button>
+          </div>
+        </div>
+      )}
+
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {games.map((g) => (
           <div key={g.id} onClick={() => onSelect(g)}
@@ -219,25 +261,28 @@ function GameMenu({ onAddPlayer, onExit }) {
 }
 
 // ═══════════════════════════════════════════
-// TOEPEN — quit gives PREVIOUS stake (stake before the toep)
+// TOEPEN
 // ═══════════════════════════════════════════
-function ToepGameScreen({ game, initialPlayers, eliminationLimit, recentNames, addToRecent, onExit }) {
-  const [players, setPlayers] = useState(initialPlayers.map((p) => ({ ...p, score: 0, inRound: true, quitThisRound: false })));
-  const [stake, setStake] = useState(1);
-  const [phase, setPhase] = useState(PHASES.IDLE);
-  const [history, setHistory] = useState([]);
+function ToepGameScreen({ game, initialPlayers, eliminationLimit, recentNames, addToRecent, onExit, savedState }) {
+  const init = savedState || { players: initialPlayers.map((p) => ({ ...p, score: 0, inRound: true, quitThisRound: false })), stake: 1, phase: PHASES.IDLE, history: [] };
+  const [players, setPlayers] = useState(init.players);
+  const [stake, setStake] = useState(init.stake);
+  const [phase, setPhase] = useState(init.phase);
+  const [history, setHistory] = useState(init.history || []);
   const [showMenu, setShowMenu] = useState(false);
   const [showAddPlayer, setShowAddPlayer] = useState(false);
+
+  // Auto-save
+  useAutoSave("activeGame", { gameId: "toepen", players, stake, phase, history });
 
   const inRoundPlayers = players.filter((p) => p.inRound && !p.quitThisRound && p.score < eliminationLimit);
   const snapshot = () => JSON.parse(JSON.stringify({ players, stake, phase }));
   const pushHistory = (label) => setHistory((h) => [...h, { label, state: snapshot() }]);
 
   const handleToep = (pid) => { pushHistory(`Toep by ${players.find((p) => p.id === pid)?.name}`); setStake((s) => s + 1); setPhase(PHASES.TOEPING); };
-  // FIX: quitting costs the PREVIOUS stake (stake - 1), not the current stake
   const handleQuit = (pid) => {
     const p = players.find((pl) => pl.id === pid);
-    const quitStake = stake - 1; // previous stake before the toep
+    const quitStake = stake - 1;
     pushHistory(`${p.name} quits (+${quitStake})`);
     setPlayers(players.map((pl) => pl.id === pid ? { ...pl, quitThisRound: true, score: pl.score + quitStake } : pl));
   };
@@ -274,7 +319,7 @@ function ToepGameScreen({ game, initialPlayers, eliminationLimit, recentNames, a
         {phase === PHASES.TOEPING && `Toep! Stake is ${stake}. Quitting costs ${stake - 1}.`}
         {phase === PHASES.PICK_WINNER && "Pick the round winner"}
       </div>
-      {showMenu && <GameMenu onAddPlayer={() => { setShowAddPlayer(true); setShowMenu(false); }} onExit={() => { setShowMenu(false); onExit(); }} />}
+      {showMenu && <GameMenu onAddPlayer={() => { setShowAddPlayer(true); setShowMenu(false); }} onExit={onExit} />}
       {showAddPlayer && <AddPlayerPopup players={players} recentNames={recentNames} onAdd={addMid} onClose={() => setShowAddPlayer(false)} />}
       <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 12 }}>
         {players.map((p, idx) => {
@@ -318,12 +363,16 @@ function ToepGameScreen({ game, initialPlayers, eliminationLimit, recentNames, a
 // ═══════════════════════════════════════════
 // COUNTER
 // ═══════════════════════════════════════════
-function CounterGameScreen({ game, initialPlayers, recentNames, addToRecent, onExit }) {
-  const [players, setPlayers] = useState(initialPlayers.map((p) => ({ ...p, score: 0 })));
+function CounterGameScreen({ game, initialPlayers, recentNames, addToRecent, onExit, savedState }) {
+  const init = savedState || { players: initialPlayers.map((p) => ({ ...p, score: 0 })), history: [] };
+  const [players, setPlayers] = useState(init.players);
   const [addInputs, setAddInputs] = useState({});
   const [showMenu, setShowMenu] = useState(false);
   const [showAddPlayer, setShowAddPlayer] = useState(false);
-  const [history, setHistory] = useState([]);
+  const [history, setHistory] = useState(init.history || []);
+
+  useAutoSave("activeGame", { gameId: "counter", players, history });
+
   const pushHistory = () => setHistory((h) => [...h, JSON.parse(JSON.stringify(players))]);
   const handleUndo = () => { if (!history.length) return; setPlayers(history[history.length - 1]); setHistory((h) => h.slice(0, -1)); };
   const addMid = (name) => { const t = name.trim(); if (!t || players.find((p) => p.name === t)) return; addToRecent(t); pushHistory(); setPlayers([...players, { id: uid(), name: t, score: 0 }]); };
@@ -342,7 +391,7 @@ function CounterGameScreen({ game, initialPlayers, recentNames, addToRecent, onE
           <button onClick={() => setShowMenu(!showMenu)} style={{ ...pill, background: C.surface, color: C.text, border: `1px solid ${C.border}`, fontSize: 16, padding: "4px 10px" }}>⋮</button>
         </div>
       </div>
-      {showMenu && <GameMenu onAddPlayer={() => { setShowAddPlayer(true); setShowMenu(false); }} onExit={() => { setShowMenu(false); onExit(); }} />}
+      {showMenu && <GameMenu onAddPlayer={() => { setShowAddPlayer(true); setShowMenu(false); }} onExit={onExit} />}
       {showAddPlayer && <AddPlayerPopup players={players} recentNames={recentNames} onAdd={addMid} onClose={() => setShowAddPlayer(false)} />}
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {players.map((p, idx) => (
@@ -379,9 +428,9 @@ function CounterGameScreen({ game, initialPlayers, recentNames, addToRecent, onE
 }
 
 // ═══════════════════════════════════════════
-// BOERENBRIDGE — with bid total warning
+// BOERENBRIDGE
 // ═══════════════════════════════════════════
-function BBGameScreen({ game, initialPlayers, settings, recentNames, addToRecent, onExit }) {
+function BBGameScreen({ game, initialPlayers, settings, recentNames, addToRecent, onExit, savedState }) {
   const maxC = settings.bbMaxCards;
   const buildRounds = () => {
     const f = [];
@@ -390,15 +439,19 @@ function BBGameScreen({ game, initialPlayers, settings, recentNames, addToRecent
     for (let i = maxC - 1; i >= 1; i--) f.push({ cards: i, noTrump: false });
     return f;
   };
+
+  const init = savedState || { players: initialPlayers.map((p) => ({ ...p, totalScore: 0 })), currentRound: 0, phase: BB_PHASES.BIDDING, bids: {}, tricks: {}, roundHistory: [] };
   const [rounds] = useState(buildRounds);
-  const [currentRound, setCurrentRound] = useState(0);
-  const [phase, setPhase] = useState(BB_PHASES.BIDDING);
-  const [players, setPlayers] = useState(initialPlayers.map((p) => ({ ...p, totalScore: 0 })));
-  const [bids, setBids] = useState({});
-  const [tricks, setTricks] = useState({});
-  const [roundHistory, setRoundHistory] = useState([]);
+  const [currentRound, setCurrentRound] = useState(init.currentRound);
+  const [phase, setPhase] = useState(init.phase);
+  const [players, setPlayers] = useState(init.players);
+  const [bids, setBids] = useState(init.bids);
+  const [tricks, setTricks] = useState(init.tricks);
+  const [roundHistory, setRoundHistory] = useState(init.roundHistory || []);
   const [showMenu, setShowMenu] = useState(false);
   const [showAddPlayer, setShowAddPlayer] = useState(false);
+
+  useAutoSave("activeGame", { gameId: "boerenbridge", players, currentRound, phase, bids, tricks, roundHistory });
 
   const round = rounds[currentRound];
   const isLastRound = currentRound >= rounds.length - 1;
@@ -409,8 +462,6 @@ function BBGameScreen({ game, initialPlayers, settings, recentNames, addToRecent
   const setTrick = (id, v) => setTricks({ ...tricks, [id]: v });
   const allBidsIn = players.every((p) => bids[p.id] !== undefined && bids[p.id] !== "");
   const allTricksIn = players.every((p) => tricks[p.id] !== undefined && tricks[p.id] !== "");
-
-  // Bid warning: total bids == cards when cards >= 3
   const totalBids = players.reduce((sum, p) => sum + (typeof bids[p.id] === "number" ? bids[p.id] : 0), 0);
   const showBidWarning = round && round.cards >= 3 && allBidsIn && totalBids === round.cards;
 
@@ -490,17 +541,13 @@ function BBGameScreen({ game, initialPlayers, settings, recentNames, addToRecent
         {phase === BB_PHASES.BIDDING && "Enter each player's bid (predicted tricks)"}
         {phase === BB_PHASES.PLAYING && "Round over — enter actual tricks won"}
       </div>
-
-      {/* BID WARNING */}
       {phase === BB_PHASES.BIDDING && showBidWarning && (
         <div style={{ padding: "10px 14px", borderRadius: 8, marginBottom: 12, fontSize: 13, fontWeight: 700, background: C.red + "22", color: C.red, border: `1px solid ${C.red}44` }}>
-          ⚠ Total bids ({totalBids}) equals the number of cards ({round.cards}) — this is not allowed from 3 cards onwards!
+          ⚠ Total bids ({totalBids}) equals the number of cards ({round.cards}) — not allowed from 3 cards!
         </div>
       )}
-
-      {showMenu && <GameMenu onAddPlayer={() => { setShowAddPlayer(true); setShowMenu(false); }} onExit={() => { setShowMenu(false); onExit(); }} />}
+      {showMenu && <GameMenu onAddPlayer={() => { setShowAddPlayer(true); setShowMenu(false); }} onExit={onExit} />}
       {showAddPlayer && <AddPlayerPopup players={players} recentNames={recentNames} onAdd={addMid} onClose={() => setShowAddPlayer(false)} />}
-
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {players.map((p, idx) => {
           const bid = getBid(p.id); const trick = getTricks(p.id);
@@ -553,33 +600,25 @@ function BBGameScreen({ game, initialPlayers, settings, recentNames, addToRecent
 }
 
 // ═══════════════════════════════════════════
-// YAHTZEE GAME SCREEN
+// YAHTZEE
 // ═══════════════════════════════════════════
-function YahtzeeGameScreen({ game, initialPlayers, settings, recentNames, addToRecent, onExit }) {
-  // Each player has scores: { ones: null, twos: null, ..., yahtzee: null, chance: null, yahtzeeBonus: 0 }
-  const initScores = () => {
-    const s = {}; YZ_ALL.forEach((c) => s[c.key] = null);
-    s.yahtzeeBonus = 0;
-    return s;
-  };
-  const [players, setPlayers] = useState(initialPlayers.map((p) => ({ ...p, scores: initScores() })));
-  const [editingCell, setEditingCell] = useState(null); // { playerId, key }
+function YahtzeeGameScreen({ game, initialPlayers, settings, recentNames, addToRecent, onExit, savedState }) {
+  const initScores = () => { const s = {}; YZ_ALL.forEach((c) => s[c.key] = null); s.yahtzeeBonus = 0; return s; };
+  const init = savedState || { players: initialPlayers.map((p) => ({ ...p, scores: initScores() })), finished: false };
+  const [players, setPlayers] = useState(init.players);
+  const [editingCell, setEditingCell] = useState(null);
   const [editValue, setEditValue] = useState("");
-  const [finished, setFinished] = useState(false);
+  const [finished, setFinished] = useState(init.finished || false);
+
+  useAutoSave("activeGame", { gameId: "yahtzee", players, finished });
 
   const setScore = (pid, key, val) => {
-    setPlayers(players.map((p) => {
-      if (p.id !== pid) return p;
-      const newScores = { ...p.scores, [key]: val };
-      return { ...p, scores: newScores };
-    }));
+    setPlayers(players.map((p) => p.id !== pid ? p : { ...p, scores: { ...p.scores, [key]: val } }));
     setEditingCell(null); setEditValue("");
   };
-
   const addYahtzeeBonus = (pid) => {
     setPlayers(players.map((p) => p.id === pid ? { ...p, scores: { ...p.scores, yahtzeeBonus: p.scores.yahtzeeBonus + 100 } } : p));
   };
-
   const calcUpperTotal = (scores) => YZ_UPPER.reduce((s, c) => s + (scores[c.key] || 0), 0);
   const calcUpperBonus = (scores) => calcUpperTotal(scores) >= 63 ? 35 : 0;
   const calcLowerTotal = (scores) => YZ_LOWER.reduce((s, c) => s + (scores[c.key] || 0), 0);
@@ -590,14 +629,12 @@ function YahtzeeGameScreen({ game, initialPlayers, settings, recentNames, addToR
     setEditingCell({ playerId: pid, key });
     setEditValue(p.scores[key] !== null ? String(p.scores[key]) : "");
   };
-
   const confirmEdit = () => {
     if (!editingCell) return;
     const val = editValue.trim() === "" ? null : parseInt(editValue);
     if (editValue.trim() !== "" && isNaN(val)) return;
     setScore(editingCell.playerId, editingCell.key, val);
   };
-
   const sorted = [...players].sort((a, b) => calcGrandTotal(b.scores) - calcGrandTotal(a.scores));
 
   if (finished) {
@@ -622,6 +659,16 @@ function YahtzeeGameScreen({ game, initialPlayers, settings, recentNames, addToR
     );
   }
 
+  const renderScoreCell = (p, catKey) => {
+    if (editingCell?.playerId === p.id && editingCell?.key === catKey) {
+      return <input value={editValue} onChange={(e) => { if (/^\d*$/.test(e.target.value)) setEditValue(e.target.value); }}
+        onKeyDown={(e) => { if (e.key === "Enter") confirmEdit(); if (e.key === "Escape") setEditingCell(null); }}
+        onBlur={confirmEdit} autoFocus
+        style={{ width: 44, padding: "4px", borderRadius: 6, border: `2px solid ${C.orange}`, background: C.surface, color: C.text, fontSize: 14, fontWeight: 700, textAlign: "center", fontFamily: "inherit", outline: "none" }} />;
+    }
+    return <button onClick={() => startEdit(p.id, catKey)} style={{ ...pill, padding: "6px 4px", width: "100%", fontSize: 14, fontWeight: 700, background: p.scores[catKey] !== null ? C.card : C.surface, color: p.scores[catKey] !== null ? C.text : C.textDim + "66", border: `1px solid ${C.border}`, borderRadius: 6, minWidth: 44 }}>{p.scores[catKey] !== null ? p.scores[catKey] : "—"}</button>;
+  };
+
   return (
     <div style={{ padding: "20px 8px", minHeight: "100vh" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
@@ -631,41 +678,20 @@ function YahtzeeGameScreen({ game, initialPlayers, settings, recentNames, addToR
           <button onClick={onExit} style={{ ...pill, background: C.surface, color: C.textDim, border: `1px solid ${C.border}`, fontSize: 12 }}>Exit</button>
         </div>
       </div>
-
-      {/* Scorecard table */}
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-          <thead>
-            <tr>
-              <th style={{ padding: "6px 8px", textAlign: "left", color: C.textDim, borderBottom: `2px solid ${C.border}`, position: "sticky", left: 0, background: C.bg, minWidth: 90 }}>Category</th>
-              {players.map((p) => <th key={p.id} style={{ padding: "6px 8px", textAlign: "center", color: C.text, borderBottom: `2px solid ${C.border}`, minWidth: 60 }}>{p.name.slice(0, 6)}</th>)}
-            </tr>
-          </thead>
+          <thead><tr>
+            <th style={{ padding: "6px 8px", textAlign: "left", color: C.textDim, borderBottom: `2px solid ${C.border}`, position: "sticky", left: 0, background: C.bg, minWidth: 90 }}>Category</th>
+            {players.map((p) => <th key={p.id} style={{ padding: "6px 8px", textAlign: "center", color: C.text, borderBottom: `2px solid ${C.border}`, minWidth: 60 }}>{p.name.slice(0, 6)}</th>)}
+          </tr></thead>
           <tbody>
-            {/* Upper section */}
             <tr><td colSpan={players.length + 1} style={{ padding: "8px 8px 4px", fontSize: 10, fontWeight: 700, color: C.orange, textTransform: "uppercase", letterSpacing: 1 }}>Upper Section</td></tr>
             {YZ_UPPER.map((cat) => (
               <tr key={cat.key}>
-                <td style={{ padding: "6px 8px", color: C.textDim, borderBottom: `1px solid ${C.border}22`, position: "sticky", left: 0, background: C.bg }}>
-                  <div style={{ fontWeight: 600, color: C.text }}>{cat.label}</div>
-                </td>
-                {players.map((p) => (
-                  <td key={p.id} style={{ padding: "4px 4px", textAlign: "center", borderBottom: `1px solid ${C.border}22` }}>
-                    {editingCell?.playerId === p.id && editingCell?.key === cat.key ? (
-                      <input value={editValue} onChange={(e) => { if (/^\d*$/.test(e.target.value)) setEditValue(e.target.value); }}
-                        onKeyDown={(e) => { if (e.key === "Enter") confirmEdit(); if (e.key === "Escape") setEditingCell(null); }}
-                        onBlur={confirmEdit} autoFocus
-                        style={{ width: 44, padding: "4px", borderRadius: 6, border: `2px solid ${C.orange}`, background: C.surface, color: C.text, fontSize: 14, fontWeight: 700, textAlign: "center", fontFamily: "inherit", outline: "none" }} />
-                    ) : (
-                      <button onClick={() => startEdit(p.id, cat.key)} style={{ ...pill, padding: "6px 4px", width: "100%", fontSize: 14, fontWeight: 700, background: p.scores[cat.key] !== null ? C.card : C.surface, color: p.scores[cat.key] !== null ? C.text : C.textDim + "66", border: `1px solid ${C.border}`, borderRadius: 6, minWidth: 44 }}>
-                        {p.scores[cat.key] !== null ? p.scores[cat.key] : "—"}
-                      </button>
-                    )}
-                  </td>
-                ))}
+                <td style={{ padding: "6px 8px", color: C.textDim, borderBottom: `1px solid ${C.border}22`, position: "sticky", left: 0, background: C.bg }}><div style={{ fontWeight: 600, color: C.text }}>{cat.label}</div></td>
+                {players.map((p) => <td key={p.id} style={{ padding: "4px 4px", textAlign: "center", borderBottom: `1px solid ${C.border}22` }}>{renderScoreCell(p, cat.key)}</td>)}
               </tr>
             ))}
-            {/* Upper totals */}
             <tr style={{ background: C.surface }}>
               <td style={{ padding: "6px 8px", fontWeight: 700, color: C.textDim, position: "sticky", left: 0, background: C.surface }}>Upper Total</td>
               {players.map((p) => <td key={p.id} style={{ padding: "6px 4px", textAlign: "center", fontWeight: 800, color: C.text }}>{calcUpperTotal(p.scores)}</td>)}
@@ -674,8 +700,6 @@ function YahtzeeGameScreen({ game, initialPlayers, settings, recentNames, addToR
               <td style={{ padding: "4px 8px", fontSize: 11, color: C.textDim, position: "sticky", left: 0, background: C.surface }}>Bonus (≥63)</td>
               {players.map((p) => <td key={p.id} style={{ padding: "4px 4px", textAlign: "center", fontWeight: 700, fontSize: 11, color: calcUpperBonus(p.scores) > 0 ? C.green : C.textDim }}>{calcUpperBonus(p.scores) > 0 ? "+35" : `${calcUpperTotal(p.scores)}/63`}</td>)}
             </tr>
-
-            {/* Lower section */}
             <tr><td colSpan={players.length + 1} style={{ padding: "8px 8px 4px", fontSize: 10, fontWeight: 700, color: C.orange, textTransform: "uppercase", letterSpacing: 1 }}>Lower Section</td></tr>
             {YZ_LOWER.map((cat) => (
               <tr key={cat.key}>
@@ -683,24 +707,9 @@ function YahtzeeGameScreen({ game, initialPlayers, settings, recentNames, addToR
                   <div style={{ fontWeight: 600, color: C.text, fontSize: 11 }}>{cat.label}</div>
                   <div style={{ fontSize: 9, color: C.textDim, marginTop: 1 }}>{cat.desc}</div>
                 </td>
-                {players.map((p) => (
-                  <td key={p.id} style={{ padding: "4px 4px", textAlign: "center", borderBottom: `1px solid ${C.border}22` }}>
-                    {editingCell?.playerId === p.id && editingCell?.key === cat.key ? (
-                      <input value={editValue} onChange={(e) => { if (/^\d*$/.test(e.target.value)) setEditValue(e.target.value); }}
-                        onKeyDown={(e) => { if (e.key === "Enter") confirmEdit(); if (e.key === "Escape") setEditingCell(null); }}
-                        onBlur={confirmEdit} autoFocus
-                        style={{ width: 44, padding: "4px", borderRadius: 6, border: `2px solid ${C.orange}`, background: C.surface, color: C.text, fontSize: 14, fontWeight: 700, textAlign: "center", fontFamily: "inherit", outline: "none" }} />
-                    ) : (
-                      <button onClick={() => startEdit(p.id, cat.key)} style={{ ...pill, padding: "6px 4px", width: "100%", fontSize: 14, fontWeight: 700, background: p.scores[cat.key] !== null ? C.card : C.surface, color: p.scores[cat.key] !== null ? C.text : C.textDim + "66", border: `1px solid ${C.border}`, borderRadius: 6, minWidth: 44 }}>
-                        {p.scores[cat.key] !== null ? p.scores[cat.key] : "—"}
-                      </button>
-                    )}
-                  </td>
-                ))}
+                {players.map((p) => <td key={p.id} style={{ padding: "4px 4px", textAlign: "center", borderBottom: `1px solid ${C.border}22` }}>{renderScoreCell(p, cat.key)}</td>)}
               </tr>
             ))}
-
-            {/* Yahtzee bonus */}
             {settings.yzMultiple && (
               <tr>
                 <td style={{ padding: "6px 8px", fontWeight: 600, color: C.text, fontSize: 11, position: "sticky", left: 0, background: C.bg }}>Yahtzee Bonus</td>
@@ -714,8 +723,6 @@ function YahtzeeGameScreen({ game, initialPlayers, settings, recentNames, addToR
                 ))}
               </tr>
             )}
-
-            {/* Grand total */}
             <tr style={{ background: C.card }}>
               <td style={{ padding: "10px 8px", fontWeight: 800, fontSize: 14, color: C.orange, position: "sticky", left: 0, background: C.card }}>Grand Total</td>
               {players.map((p) => <td key={p.id} style={{ padding: "10px 4px", textAlign: "center", fontWeight: 900, fontSize: 18, color: C.orange }}>{calcGrandTotal(p.scores)}</td>)}
