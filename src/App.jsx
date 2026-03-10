@@ -19,7 +19,15 @@ const pill = {
   transition: "all .15s", fontFamily: "inherit",
 };
 
+// Bigger style for top control buttons (undo, menu, back, finish, exit)
+const ctrlBtn = {
+  ...pill, padding: "10px 16px", fontSize: 14, borderRadius: 10,
+};
+
 const RECENT_NAMES_DEFAULT = ["Max", "Tim", "Sanne", "Luuk", "Emma", "Daan"];
+
+// Safe area top padding for notched iPhones in PWA mode
+const safeTop = "max(20px, env(safe-area-inset-top, 20px))";
 
 const YZ_UPPER = [
   { key: "ones", label: "Ones", desc: "Total of ones" },
@@ -40,11 +48,9 @@ const YZ_LOWER = [
 ];
 const YZ_ALL = [...YZ_UPPER, ...YZ_LOWER];
 
-// ─── Auto-save hook: saves state to localStorage on every change ───
 function useAutoSave(key, state) {
   useEffect(() => { save(key, state); }, [key, state]);
 }
-
 function clearSavedGame() { save("activeGame", null); }
 
 function NumStepper({ value, onChange, min, max, color = C.accent, label, suffix }) {
@@ -72,36 +78,21 @@ export default function App() {
     yzMultiple: false,
   }));
 
-  // Check for saved game on mount
-  useEffect(() => {
-    const saved = load("activeGame", null);
-    if (saved && saved.gameId) setResumeData(saved);
-  }, []);
-
+  useEffect(() => { const saved = load("activeGame", null); if (saved && saved.gameId) setResumeData(saved); }, []);
   useEffect(() => { save("gameSettings", gameSettings); }, [gameSettings]);
   useEffect(() => { save("recentNames", recentNames); }, [recentNames]);
 
   const updateSetting = (key, val) => setGameSettings({ ...gameSettings, [key]: val });
-  const addToRecent = (name) => {
-    const t = name.trim(); if (!t) return;
-    setRecentNames((prev) => [t, ...prev.filter((n) => n.toLowerCase() !== t.toLowerCase())].slice(0, 20));
-  };
+  const addToRecent = (name) => { const t = name.trim(); if (!t) return; setRecentNames((prev) => [t, ...prev.filter((n) => n.toLowerCase() !== t.toLowerCase())].slice(0, 20)); };
   const startGame = (game) => { setSelectedGame(game); setScreen("setup"); };
   const beginGame = () => { players.forEach((p) => addToRecent(p.name)); setScreen("game"); };
   const backToHome = () => { clearSavedGame(); setScreen("home"); setPlayers([]); setResumeData(null); };
 
   const resumeGame = () => {
     if (!resumeData) return;
-    const gameMap = {
-      toepen: { id: "toepen", name: "Toepen", emoji: "🃏", color: C.accent },
-      boerenbridge: { id: "boerenbridge", name: "Boerenbridge", emoji: "🂡", color: C.purple },
-      yahtzee: { id: "yahtzee", name: "Yahtzee", emoji: "🎲", color: C.orange },
-      counter: { id: "counter", name: "Counter", emoji: "🔢", color: C.blue },
-    };
-    setSelectedGame(gameMap[resumeData.gameId]);
-    setScreen("game");
+    const gameMap = { toepen: { id: "toepen", name: "Toepen", emoji: "🃏", color: C.accent }, boerenbridge: { id: "boerenbridge", name: "Boerenbridge", emoji: "🂡", color: C.purple }, yahtzee: { id: "yahtzee", name: "Yahtzee", emoji: "🎲", color: C.orange }, counter: { id: "counter", name: "Counter", emoji: "🔢", color: C.blue } };
+    setSelectedGame(gameMap[resumeData.gameId]); setScreen("game");
   };
-
   const dismissResume = () => { clearSavedGame(); setResumeData(null); };
 
   return (
@@ -129,35 +120,23 @@ function HomeScreen({ onSelect, resumeData, onResume, onDismissResume }) {
   const resumeGameInfo = resumeData ? games.find((g) => g.id === resumeData.gameId) : null;
 
   return (
-    <div style={{ padding: "60px 20px 40px" }}>
+    <div style={{ paddingTop: `calc(${safeTop} + 40px)`, paddingLeft: 20, paddingRight: 20, paddingBottom: 40 }}>
       <h1 style={{ fontSize: 28, fontWeight: 800, marginBottom: 4, letterSpacing: -0.5 }}>Score Keeper</h1>
       <p style={{ color: C.textDim, fontSize: 14, marginBottom: 32 }}>Pick a game to get started</p>
-
-      {/* Resume banner */}
       {resumeGameInfo && (
         <div style={{ background: C.green + "18", border: `1px solid ${C.green}44`, borderRadius: 12, padding: "14px 16px", marginBottom: 16 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: C.green, marginBottom: 8 }}>
-            {resumeGameInfo.emoji} Game in progress — {resumeGameInfo.name}
-          </div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: C.green, marginBottom: 8 }}>{resumeGameInfo.emoji} Game in progress — {resumeGameInfo.name}</div>
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={onResume} style={{ ...pill, flex: 1, padding: "10px 0", background: C.green, color: C.bg, fontWeight: 800, borderRadius: 10, fontSize: 14 }}>Resume</button>
             <button onClick={onDismissResume} style={{ ...pill, padding: "10px 16px", background: C.surface, color: C.textDim, border: `1px solid ${C.border}`, borderRadius: 10 }}>Discard</button>
           </div>
         </div>
       )}
-
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {games.map((g) => (
-          <div key={g.id} onClick={() => onSelect(g)}
-            style={{
-              display: "flex", alignItems: "center", gap: 16,
-              background: C.card, borderRadius: 14, padding: "18px 20px",
-              cursor: "pointer", border: `1px solid ${g.color}33`,
-              transition: "transform .12s, box-shadow .12s",
-            }}
+          <div key={g.id} onClick={() => onSelect(g)} style={{ display: "flex", alignItems: "center", gap: 16, background: C.card, borderRadius: 14, padding: "18px 20px", cursor: "pointer", border: `1px solid ${g.color}33`, transition: "transform .12s, box-shadow .12s" }}
             onMouseEnter={(e) => { e.currentTarget.style.transform = "translateX(4px)"; e.currentTarget.style.boxShadow = `0 4px 16px ${g.color}18`; }}
-            onMouseLeave={(e) => { e.currentTarget.style.transform = "translateX(0)"; e.currentTarget.style.boxShadow = "none"; }}
-          >
+            onMouseLeave={(e) => { e.currentTarget.style.transform = "translateX(0)"; e.currentTarget.style.boxShadow = "none"; }}>
             <span style={{ fontSize: 36, width: 44, textAlign: "center", flexShrink: 0 }}>{g.emoji}</span>
             <span style={{ fontSize: 20, fontWeight: 700, color: g.color }}>{g.name}</span>
           </div>
@@ -179,28 +158,28 @@ function SetupScreen({ game, players, setPlayers, settings, updateSetting, recen
   const minPlayers = game.id === "counter" ? 1 : 2;
 
   return (
-    <div style={{ padding: "40px 20px" }}>
-      <button onClick={onBack} style={{ ...pill, background: "transparent", color: C.textDim, padding: "4px 0", marginBottom: 16 }}>← Back</button>
+    <div style={{ paddingTop: `calc(${safeTop} + 20px)`, paddingLeft: 20, paddingRight: 20, paddingBottom: 40 }}>
+      <button onClick={onBack} style={{ ...ctrlBtn, background: "transparent", color: C.textDim, padding: "8px 0", marginBottom: 12 }}>← Back</button>
       <h2 style={{ fontSize: 22, fontWeight: 800, marginBottom: 4 }}>{game.emoji} {game.name}</h2>
       <p style={{ color: C.textDim, fontSize: 13, marginBottom: 24 }}>Add players and set the rules</p>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 }}>
         {game.id === "toepen" && <NumStepper label="Elimination at" value={settings.eliminationLimit} onChange={(v) => updateSetting("eliminationLimit", v)} min={5} max={30} color={C.accent} suffix="lives" />}
         {game.id === "boerenbridge" && (<>
-          <NumStepper label="Max cards per round" value={settings.bbMaxCards} onChange={(v) => updateSetting("bbMaxCards", v)} min={3} max={13} color={C.purple} />
-          <NumStepper label="Base bonus (correct)" value={settings.bbBaseBonus} onChange={(v) => updateSetting("bbBaseBonus", v)} min={0} max={20} color={C.green} />
-          <NumStepper label="Bonus per trick" value={settings.bbBonusPerTrick} onChange={(v) => updateSetting("bbBonusPerTrick", v)} min={0} max={10} color={C.green} />
+          <NumStepper label="Max cards per round" value={settings.bbMaxCards} onChange={(v) => updateSetting("bbMaxCards", v)} min={3} max={13} color={C.text} />
+          <NumStepper label="Base bonus (correct)" value={settings.bbBaseBonus} onChange={(v) => updateSetting("bbBaseBonus", v)} min={0} max={20} color={C.text} />
+          <NumStepper label="Bonus per trick" value={settings.bbBonusPerTrick} onChange={(v) => updateSetting("bbBonusPerTrick", v)} min={0} max={10} color={C.text} />
           <NumStepper label="Penalty under (per diff)" value={settings.bbUnderPenalty} onChange={(v) => updateSetting("bbUnderPenalty", v)} min={-10} max={0} color={C.red} />
           <NumStepper label="Penalty over (per diff)" value={settings.bbOverPenalty} onChange={(v) => updateSetting("bbOverPenalty", v)} min={-10} max={0} color={C.red} />
           <div style={{ display: "flex", alignItems: "center", gap: 12, background: C.surface, padding: "10px 16px", borderRadius: 12 }}>
             <span style={{ fontSize: 13, color: C.textDim, flex: 1 }}>No-trump round at max cards</span>
-            <button onClick={() => updateSetting("bbNoTrumpRound", !settings.bbNoTrumpRound)} style={{ ...pill, padding: "6px 16px", background: settings.bbNoTrumpRound ? C.purple + "33" : C.card, color: settings.bbNoTrumpRound ? C.purple : C.textDim, border: `1px solid ${settings.bbNoTrumpRound ? C.purple + "66" : C.border}` }}>{settings.bbNoTrumpRound ? "ON" : "OFF"}</button>
+            <button onClick={() => updateSetting("bbNoTrumpRound", !settings.bbNoTrumpRound)} style={{ ...pill, padding: "6px 16px", background: settings.bbNoTrumpRound ? C.accent + "33" : C.card, color: settings.bbNoTrumpRound ? C.accent : C.textDim, border: `1px solid ${settings.bbNoTrumpRound ? C.accent + "66" : C.border}` }}>{settings.bbNoTrumpRound ? "ON" : "OFF"}</button>
           </div>
         </>)}
         {game.id === "yahtzee" && (
           <div style={{ display: "flex", alignItems: "center", gap: 12, background: C.surface, padding: "10px 16px", borderRadius: 12 }}>
             <span style={{ fontSize: 13, color: C.textDim, flex: 1 }}>Allow multiple Yahtzees (+100 bonus)</span>
-            <button onClick={() => updateSetting("yzMultiple", !settings.yzMultiple)} style={{ ...pill, padding: "6px 16px", background: settings.yzMultiple ? C.orange + "33" : C.card, color: settings.yzMultiple ? C.orange : C.textDim, border: `1px solid ${settings.yzMultiple ? C.orange + "66" : C.border}` }}>{settings.yzMultiple ? "ON" : "OFF"}</button>
+            <button onClick={() => updateSetting("yzMultiple", !settings.yzMultiple)} style={{ ...pill, padding: "6px 16px", background: settings.yzMultiple ? C.accent + "33" : C.card, color: settings.yzMultiple ? C.accent : C.textDim, border: `1px solid ${settings.yzMultiple ? C.accent + "66" : C.border}` }}>{settings.yzMultiple ? "ON" : "OFF"}</button>
           </div>
         )}
       </div>
@@ -254,14 +233,14 @@ function AddPlayerPopup({ players, recentNames, onAdd, onClose }) {
 function GameMenu({ onAddPlayer, onExit }) {
   return (
     <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12, marginBottom: 16, display: "flex", flexDirection: "column", gap: 8 }}>
-      <button onClick={onAddPlayer} style={{ ...pill, background: C.surface, color: C.text, textAlign: "left" }}>+ Add Player</button>
-      <button onClick={onExit} style={{ ...pill, background: C.red + "22", color: C.red, textAlign: "left" }}>End Game</button>
+      <button onClick={onAddPlayer} style={{ ...ctrlBtn, background: C.surface, color: C.text, textAlign: "left" }}>+ Add Player</button>
+      <button onClick={onExit} style={{ ...ctrlBtn, background: C.red + "22", color: C.red, textAlign: "left" }}>End Game</button>
     </div>
   );
 }
 
 // ═══════════════════════════════════════════
-// TOEPEN
+// TOEPEN — finish round always available
 // ═══════════════════════════════════════════
 function ToepGameScreen({ game, initialPlayers, eliminationLimit, recentNames, addToRecent, onExit, savedState }) {
   const init = savedState || { players: initialPlayers.map((p) => ({ ...p, score: 0, inRound: true, quitThisRound: false })), stake: 1, phase: PHASES.IDLE, history: [] };
@@ -272,7 +251,6 @@ function ToepGameScreen({ game, initialPlayers, eliminationLimit, recentNames, a
   const [showMenu, setShowMenu] = useState(false);
   const [showAddPlayer, setShowAddPlayer] = useState(false);
 
-  // Auto-save
   useAutoSave("activeGame", { gameId: "toepen", players, stake, phase, history });
 
   const inRoundPlayers = players.filter((p) => p.inRound && !p.quitThisRound && p.score < eliminationLimit);
@@ -286,7 +264,8 @@ function ToepGameScreen({ game, initialPlayers, eliminationLimit, recentNames, a
     pushHistory(`${p.name} quits (+${quitStake})`);
     setPlayers(players.map((pl) => pl.id === pid ? { ...pl, quitThisRound: true, score: pl.score + quitStake } : pl));
   };
-  const handleContinue = () => { pushHistory("Continue → pick winner"); setPhase(PHASES.PICK_WINNER); };
+  // Finish round = go to pick winner (available in both IDLE and TOEPING)
+  const handleFinishRound = () => { pushHistory("Finish round → pick winner"); setPhase(PHASES.PICK_WINNER); };
   const handlePickWinner = (wid) => {
     pushHistory(`${players.find((p) => p.id === wid).name} wins round`);
     setPlayers(players.map((p) => {
@@ -300,22 +279,21 @@ function ToepGameScreen({ game, initialPlayers, eliminationLimit, recentNames, a
   const addMid = (name) => { const t = name.trim(); if (!t || players.find((p) => p.name === t)) return; addToRecent(t); setPlayers([...players, { id: uid(), name: t, score: 0, inRound: true, quitThisRound: false }]); };
   const removeMid = (id) => setPlayers(players.filter((p) => p.id !== id));
   const moveMid = (i, d) => { const n = [...players]; const s = i + d; if (s < 0 || s >= n.length) return; [n[i], n[s]] = [n[s], n[i]]; setPlayers(n); };
-  const canContinue = phase === PHASES.TOEPING && inRoundPlayers.length >= 1;
 
   return (
-    <div style={{ padding: "20px 12px", minHeight: "100vh" }}>
+    <div style={{ paddingTop: `calc(${safeTop} + 8px)`, paddingLeft: 12, paddingRight: 12, paddingBottom: 20, minHeight: "100vh" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
         <div>
           <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: 1, marginBottom: 2 }}>Current Stake</div>
           <div style={{ fontSize: 36, fontWeight: 900, color: C.accent, textShadow: `0 0 20px ${C.accent}44` }}>{stake}</div>
         </div>
         <div style={{ display: "flex", gap: 6 }}>
-          <button onClick={handleUndo} disabled={!history.length} style={{ ...pill, background: C.surface, color: history.length ? C.text : C.textDim, border: `1px solid ${C.border}`, opacity: history.length ? 1 : 0.4, fontSize: 12 }}>↩ Undo</button>
-          <button onClick={() => setShowMenu(!showMenu)} style={{ ...pill, background: C.surface, color: C.text, border: `1px solid ${C.border}`, fontSize: 16, padding: "4px 10px" }}>⋮</button>
+          <button onClick={handleUndo} disabled={!history.length} style={{ ...ctrlBtn, background: C.surface, color: history.length ? C.text : C.textDim, border: `1px solid ${C.border}`, opacity: history.length ? 1 : 0.4 }}>↩ Undo</button>
+          <button onClick={() => setShowMenu(!showMenu)} style={{ ...ctrlBtn, background: C.surface, color: C.text, border: `1px solid ${C.border}`, fontSize: 18, padding: "8px 14px" }}>⋮</button>
         </div>
       </div>
       <div style={{ padding: "8px 14px", borderRadius: 8, marginBottom: 16, fontSize: 13, fontWeight: 600, background: phase === PHASES.IDLE ? C.surface : phase === PHASES.TOEPING ? C.accent + "22" : C.green + "22", color: phase === PHASES.IDLE ? C.textDim : phase === PHASES.TOEPING ? C.accent : C.green, border: `1px solid ${phase === PHASES.IDLE ? C.border : phase === PHASES.TOEPING ? C.accent + "44" : C.green + "44"}` }}>
-        {phase === PHASES.IDLE && "Ready — tap Toep to raise the stakes"}
+        {phase === PHASES.IDLE && "Ready — tap Toep or finish the round"}
         {phase === PHASES.TOEPING && `Toep! Stake is ${stake}. Quitting costs ${stake - 1}.`}
         {phase === PHASES.PICK_WINNER && "Pick the round winner"}
       </div>
@@ -351,7 +329,10 @@ function ToepGameScreen({ game, initialPlayers, eliminationLimit, recentNames, a
           );
         })}
       </div>
-      {canContinue && <button onClick={handleContinue} style={{ ...pill, width: "100%", padding: "14px 0", marginTop: 12, background: `linear-gradient(135deg, ${C.green}, #38a85c)`, color: C.bg, fontSize: 15, fontWeight: 800, borderRadius: 12 }}>Continue → Pick Winner</button>}
+      {/* Finish round button — always available when not already picking winner */}
+      {phase !== PHASES.PICK_WINNER && inRoundPlayers.length >= 1 && (
+        <button onClick={handleFinishRound} style={{ ...pill, width: "100%", padding: "14px 0", marginTop: 12, background: `linear-gradient(135deg, ${C.green}, #38a85c)`, color: C.bg, fontSize: 15, fontWeight: 800, borderRadius: 12 }}>Finish Round → Pick Winner</button>
+      )}
       {history.length > 0 && <div style={{ marginTop: 24, padding: "12px 14px", background: C.surface, borderRadius: 12 }}>
         <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Round Log</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 3, maxHeight: 120, overflowY: "auto" }}>{[...history].reverse().slice(0, 10).map((h, i) => <div key={i} style={{ fontSize: 12, color: C.textDim }}>{h.label}</div>)}</div>
@@ -361,7 +342,7 @@ function ToepGameScreen({ game, initialPlayers, eliminationLimit, recentNames, a
 }
 
 // ═══════════════════════════════════════════
-// COUNTER
+// COUNTER — numeric keyboard on inputs
 // ═══════════════════════════════════════════
 function CounterGameScreen({ game, initialPlayers, recentNames, addToRecent, onExit, savedState }) {
   const init = savedState || { players: initialPlayers.map((p) => ({ ...p, score: 0 })), history: [] };
@@ -383,12 +364,12 @@ function CounterGameScreen({ game, initialPlayers, recentNames, addToRecent, onE
   const applyAdd = (id) => { const v = parseInt(getV(id)); if (isNaN(v)) return; pushHistory(); setPlayers(players.map((p) => p.id === id ? { ...p, score: p.score + v } : p)); setAddInputs({ ...addInputs, [id]: "" }); };
 
   return (
-    <div style={{ padding: "20px 12px", minHeight: "100vh" }}>
+    <div style={{ paddingTop: `calc(${safeTop} + 8px)`, paddingLeft: 12, paddingRight: 12, paddingBottom: 20, minHeight: "100vh" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
         <h2 style={{ fontSize: 22, fontWeight: 800, margin: 0 }}>{game.emoji} {game.name}</h2>
         <div style={{ display: "flex", gap: 6 }}>
-          <button onClick={handleUndo} disabled={!history.length} style={{ ...pill, background: C.surface, color: history.length ? C.text : C.textDim, border: `1px solid ${C.border}`, opacity: history.length ? 1 : 0.4, fontSize: 12 }}>↩ Undo</button>
-          <button onClick={() => setShowMenu(!showMenu)} style={{ ...pill, background: C.surface, color: C.text, border: `1px solid ${C.border}`, fontSize: 16, padding: "4px 10px" }}>⋮</button>
+          <button onClick={handleUndo} disabled={!history.length} style={{ ...ctrlBtn, background: C.surface, color: history.length ? C.text : C.textDim, border: `1px solid ${C.border}`, opacity: history.length ? 1 : 0.4 }}>↩ Undo</button>
+          <button onClick={() => setShowMenu(!showMenu)} style={{ ...ctrlBtn, background: C.surface, color: C.text, border: `1px solid ${C.border}`, fontSize: 18, padding: "8px 14px" }}>⋮</button>
         </div>
       </div>
       {showMenu && <GameMenu onAddPlayer={() => { setShowAddPlayer(true); setShowMenu(false); }} onExit={onExit} />}
@@ -410,7 +391,9 @@ function CounterGameScreen({ game, initialPlayers, recentNames, addToRecent, onE
               </div>
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <input value={getV(p.id)} onChange={(e) => { const v = e.target.value; if (v === "" || v === "-" || /^-?\d*$/.test(v)) setV(p.id, v); }} onKeyDown={(e) => e.key === "Enter" && applyAdd(p.id)} placeholder="± points"
+              <input value={getV(p.id)} inputMode="numeric" pattern="-?[0-9]*"
+                onChange={(e) => { const v = e.target.value; if (v === "" || v === "-" || /^-?\d*$/.test(v)) setV(p.id, v); }}
+                onKeyDown={(e) => e.key === "Enter" && applyAdd(p.id)} placeholder="± points"
                 style={{ flex: 1, padding: "12px 14px", borderRadius: 10, border: `1px solid ${C.border}`, background: C.surface, color: C.text, fontSize: 18, fontFamily: "inherit", outline: "none", textAlign: "center", fontWeight: 700 }} />
               <button onClick={() => applyAdd(p.id)} style={{ ...pill, padding: "12px 22px", fontSize: 16, fontWeight: 800, background: `linear-gradient(135deg, ${C.blue}, #4a7ad8)`, color: "#fff", borderRadius: 10 }}>Add</button>
             </div>
@@ -428,7 +411,7 @@ function CounterGameScreen({ game, initialPlayers, recentNames, addToRecent, onE
 }
 
 // ═══════════════════════════════════════════
-// BOERENBRIDGE
+// BOERENBRIDGE — muted colors, tricks total validation
 // ═══════════════════════════════════════════
 function BBGameScreen({ game, initialPlayers, settings, recentNames, addToRecent, onExit, savedState }) {
   const maxC = settings.bbMaxCards;
@@ -439,7 +422,6 @@ function BBGameScreen({ game, initialPlayers, settings, recentNames, addToRecent
     for (let i = maxC - 1; i >= 1; i--) f.push({ cards: i, noTrump: false });
     return f;
   };
-
   const init = savedState || { players: initialPlayers.map((p) => ({ ...p, totalScore: 0 })), currentRound: 0, phase: BB_PHASES.BIDDING, bids: {}, tricks: {}, roundHistory: [] };
   const [rounds] = useState(buildRounds);
   const [currentRound, setCurrentRound] = useState(init.currentRound);
@@ -465,6 +447,10 @@ function BBGameScreen({ game, initialPlayers, settings, recentNames, addToRecent
   const totalBids = players.reduce((sum, p) => sum + (typeof bids[p.id] === "number" ? bids[p.id] : 0), 0);
   const showBidWarning = round && round.cards >= 3 && allBidsIn && totalBids === round.cards;
 
+  // Tricks total validation
+  const totalTricks = players.reduce((sum, p) => sum + (typeof tricks[p.id] === "number" ? tricks[p.id] : 0), 0);
+  const showTricksWarning = round && allTricksIn && totalTricks !== round.cards;
+
   const confirmBids = () => { if (!allBidsIn) return; setPhase(BB_PHASES.PLAYING); };
   const calcScore = (bid, actual) => {
     const b = parseInt(bid); const a = parseInt(actual);
@@ -474,7 +460,7 @@ function BBGameScreen({ game, initialPlayers, settings, recentNames, addToRecent
     return a < b ? settings.bbUnderPenalty * diff : settings.bbOverPenalty * diff;
   };
   const confirmRound = () => {
-    if (!allTricksIn) return;
+    if (!allTricksIn || showTricksWarning) return;
     const scores = {};
     const updated = players.map((p) => { const s = calcScore(bids[p.id], tricks[p.id]); scores[p.id] = s; return { ...p, totalScore: p.totalScore + s }; });
     setRoundHistory([...roundHistory, { roundIdx: currentRound, round, bids: { ...bids }, tricks: { ...tricks }, scores }]);
@@ -491,23 +477,27 @@ function BBGameScreen({ game, initialPlayers, settings, recentNames, addToRecent
   const moveMid = (i, d) => { const n = [...players]; const s = i + d; if (s < 0 || s >= n.length) return; [n[i], n[s]] = [n[s], n[i]]; setPlayers(n); };
   const sorted = [...players].sort((a, b) => b.totalScore - a.totalScore);
 
+  // Muted BB accent — use text color instead of purple for most elements
+  const bbAccent = C.text;
+  const bbDim = C.textDim;
+
   if (isGameOver) {
     return (
-      <div style={{ padding: "40px 20px", minHeight: "100vh" }}>
-        <h2 style={{ fontSize: 24, fontWeight: 900, marginBottom: 4, color: C.purple }}>🏆 Game Over!</h2>
+      <div style={{ paddingTop: `calc(${safeTop} + 20px)`, paddingLeft: 20, paddingRight: 20, paddingBottom: 40, minHeight: "100vh" }}>
+        <h2 style={{ fontSize: 24, fontWeight: 900, marginBottom: 4, color: C.accent }}>🏆 Game Over!</h2>
         <p style={{ color: C.textDim, fontSize: 13, marginBottom: 24 }}>{rounds.length} rounds completed</p>
         <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 32 }}>
           {sorted.map((p, i) => (
-            <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 12, background: i === 0 ? C.purple + "22" : C.card, border: `1px solid ${i === 0 ? C.purple + "55" : C.border}`, borderRadius: 12, padding: "14px 16px" }}>
-              <span style={{ fontSize: 20, fontWeight: 900, color: i === 0 ? C.purple : C.textDim, width: 30 }}>#{i + 1}</span>
+            <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 12, background: i === 0 ? C.accent + "22" : C.card, border: `1px solid ${i === 0 ? C.accent + "55" : C.border}`, borderRadius: 12, padding: "14px 16px" }}>
+              <span style={{ fontSize: 20, fontWeight: 900, color: i === 0 ? C.accent : C.textDim, width: 30 }}>#{i + 1}</span>
               <span style={{ flex: 1, fontSize: 16, fontWeight: 700 }}>{p.name}</span>
               <span style={{ fontSize: 24, fontWeight: 900, color: p.totalScore >= 0 ? C.green : C.red }}>{p.totalScore}</span>
             </div>
           ))}
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={undoLastRound} style={{ ...pill, flex: 1, padding: "12px 0", background: C.surface, color: C.text, border: `1px solid ${C.border}`, borderRadius: 10 }}>↩ Undo last round</button>
-          <button onClick={onExit} style={{ ...pill, flex: 1, padding: "12px 0", background: C.accent, color: C.bg, borderRadius: 10 }}>Home</button>
+          <button onClick={undoLastRound} style={{ ...ctrlBtn, flex: 1, padding: "12px 0", background: C.surface, color: C.text, border: `1px solid ${C.border}` }}>↩ Undo last round</button>
+          <button onClick={onExit} style={{ ...ctrlBtn, flex: 1, padding: "12px 0", background: C.accent, color: C.bg }}>Home</button>
         </div>
         {roundHistory.length > 0 && <div style={{ marginTop: 24, overflowX: "auto" }}>
           <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Score History</div>
@@ -523,27 +513,32 @@ function BBGameScreen({ game, initialPlayers, settings, recentNames, addToRecent
   }
 
   return (
-    <div style={{ padding: "20px 12px", minHeight: "100vh" }}>
+    <div style={{ paddingTop: `calc(${safeTop} + 8px)`, paddingLeft: 12, paddingRight: 12, paddingBottom: 20, minHeight: "100vh" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
         <div>
           <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: 1, marginBottom: 2 }}>Round {currentRound + 1} / {rounds.length}</div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 28, fontWeight: 900, color: C.purple }}>{round.cards} card{round.cards > 1 ? "s" : ""}</span>
+            <span style={{ fontSize: 28, fontWeight: 900, color: C.text }}>{round.cards} card{round.cards > 1 ? "s" : ""}</span>
             {round.noTrump && <span style={{ fontSize: 11, fontWeight: 700, color: C.accent, background: C.accent + "22", padding: "2px 8px", borderRadius: 6 }}>NO TRUMP</span>}
           </div>
         </div>
         <div style={{ display: "flex", gap: 6 }}>
-          <button onClick={undoLastRound} disabled={!roundHistory.length} style={{ ...pill, background: C.surface, color: roundHistory.length ? C.text : C.textDim, border: `1px solid ${C.border}`, opacity: roundHistory.length ? 1 : 0.4, fontSize: 12 }}>↩ Undo</button>
-          <button onClick={() => setShowMenu(!showMenu)} style={{ ...pill, background: C.surface, color: C.text, border: `1px solid ${C.border}`, fontSize: 16, padding: "4px 10px" }}>⋮</button>
+          <button onClick={undoLastRound} disabled={!roundHistory.length} style={{ ...ctrlBtn, background: C.surface, color: roundHistory.length ? C.text : C.textDim, border: `1px solid ${C.border}`, opacity: roundHistory.length ? 1 : 0.4 }}>↩ Undo</button>
+          <button onClick={() => setShowMenu(!showMenu)} style={{ ...ctrlBtn, background: C.surface, color: C.text, border: `1px solid ${C.border}`, fontSize: 18, padding: "8px 14px" }}>⋮</button>
         </div>
       </div>
-      <div style={{ padding: "8px 14px", borderRadius: 8, marginBottom: 16, fontSize: 13, fontWeight: 600, background: phase === BB_PHASES.BIDDING ? C.purple + "22" : C.green + "22", color: phase === BB_PHASES.BIDDING ? C.purple : C.green, border: `1px solid ${phase === BB_PHASES.BIDDING ? C.purple + "44" : C.green + "44"}` }}>
+      <div style={{ padding: "8px 14px", borderRadius: 8, marginBottom: 16, fontSize: 13, fontWeight: 600, background: C.surface, color: phase === BB_PHASES.BIDDING ? C.textDim : C.green, border: `1px solid ${phase === BB_PHASES.BIDDING ? C.border : C.green + "44"}` }}>
         {phase === BB_PHASES.BIDDING && "Enter each player's bid (predicted tricks)"}
         {phase === BB_PHASES.PLAYING && "Round over — enter actual tricks won"}
       </div>
       {phase === BB_PHASES.BIDDING && showBidWarning && (
         <div style={{ padding: "10px 14px", borderRadius: 8, marginBottom: 12, fontSize: 13, fontWeight: 700, background: C.red + "22", color: C.red, border: `1px solid ${C.red}44` }}>
           ⚠ Total bids ({totalBids}) equals the number of cards ({round.cards}) — not allowed from 3 cards!
+        </div>
+      )}
+      {phase === BB_PHASES.PLAYING && showTricksWarning && (
+        <div style={{ padding: "10px 14px", borderRadius: 8, marginBottom: 12, fontSize: 13, fontWeight: 700, background: C.red + "22", color: C.red, border: `1px solid ${C.red}44` }}>
+          ⚠ Total tricks ({totalTricks}) must equal {round.cards} cards. Currently off by {Math.abs(totalTricks - round.cards)}.
         </div>
       )}
       {showMenu && <GameMenu onAddPlayer={() => { setShowAddPlayer(true); setShowMenu(false); }} onExit={onExit} />}
@@ -569,7 +564,7 @@ function BBGameScreen({ game, initialPlayers, settings, recentNames, addToRecent
               </div>
               <div><div style={{ fontSize: 10, color: C.textDim, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Bid</div>
                 <div style={{ display: "flex", gap: 4 }}>{Array.from({ length: round.cards + 1 }, (_, i) => i).map((n) => (
-                  <button key={n} onClick={() => setBid(p.id, n)} style={{ ...pill, flex: 1, padding: "8px 0", fontSize: 14, fontWeight: 700, background: bid === n ? C.purple : C.surface, color: bid === n ? "#fff" : C.textDim, border: `1px solid ${bid === n ? C.purple : C.border}`, borderRadius: 8, textAlign: "center", minWidth: 0 }}>{n}</button>
+                  <button key={n} onClick={() => setBid(p.id, n)} style={{ ...pill, flex: 1, padding: "8px 0", fontSize: 14, fontWeight: 700, background: bid === n ? C.accent : C.surface, color: bid === n ? C.bg : C.textDim, border: `1px solid ${bid === n ? C.accent : C.border}`, borderRadius: 8, textAlign: "center", minWidth: 0 }}>{n}</button>
                 ))}</div></div>
               {phase === BB_PHASES.PLAYING && <div style={{ marginTop: 8 }}>
                 <div style={{ fontSize: 10, color: C.textDim, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Tricks won</div>
@@ -583,10 +578,10 @@ function BBGameScreen({ game, initialPlayers, settings, recentNames, addToRecent
         })}
       </div>
       <div style={{ marginTop: 16 }}>
-        {phase === BB_PHASES.BIDDING && <button onClick={confirmBids} disabled={!allBidsIn || showBidWarning} style={{ ...pill, width: "100%", padding: "14px 0", fontSize: 15, fontWeight: 800, borderRadius: 12, background: allBidsIn && !showBidWarning ? `linear-gradient(135deg, ${C.purple}, #8a5fc7)` : C.surface, color: allBidsIn && !showBidWarning ? "#fff" : C.textDim, border: allBidsIn && !showBidWarning ? "none" : `1px solid ${C.border}` }}>Confirm Bids → Play Round</button>}
-        {phase === BB_PHASES.PLAYING && <button onClick={confirmRound} disabled={!allTricksIn} style={{ ...pill, width: "100%", padding: "14px 0", fontSize: 15, fontWeight: 800, borderRadius: 12, background: allTricksIn ? `linear-gradient(135deg, ${C.green}, #38a85c)` : C.surface, color: allTricksIn ? "#fff" : C.textDim, border: allTricksIn ? "none" : `1px solid ${C.border}` }}>{isLastRound ? "Finish Game" : "Score Round → Next"}</button>}
+        {phase === BB_PHASES.BIDDING && <button onClick={confirmBids} disabled={!allBidsIn || showBidWarning} style={{ ...pill, width: "100%", padding: "14px 0", fontSize: 15, fontWeight: 800, borderRadius: 12, background: allBidsIn && !showBidWarning ? `linear-gradient(135deg, ${C.accent}, ${C.accentDim})` : C.surface, color: allBidsIn && !showBidWarning ? C.bg : C.textDim, border: allBidsIn && !showBidWarning ? "none" : `1px solid ${C.border}` }}>Confirm Bids → Play Round</button>}
+        {phase === BB_PHASES.PLAYING && <button onClick={confirmRound} disabled={!allTricksIn || showTricksWarning} style={{ ...pill, width: "100%", padding: "14px 0", fontSize: 15, fontWeight: 800, borderRadius: 12, background: allTricksIn && !showTricksWarning ? `linear-gradient(135deg, ${C.green}, #38a85c)` : C.surface, color: allTricksIn && !showTricksWarning ? "#fff" : C.textDim, border: allTricksIn && !showTricksWarning ? "none" : `1px solid ${C.border}` }}>{isLastRound ? "Finish Game" : "Score Round → Next"}</button>}
       </div>
-      <div style={{ marginTop: 16, display: "flex", gap: 2, flexWrap: "wrap" }}>{rounds.map((r, i) => <div key={i} style={{ flex: 1, minWidth: 8, height: 6, borderRadius: 3, background: i < currentRound ? C.purple : i === currentRound ? C.accent : C.surface, opacity: i < currentRound ? 0.5 : 1 }} />)}</div>
+      <div style={{ marginTop: 16, display: "flex", gap: 2, flexWrap: "wrap" }}>{rounds.map((r, i) => <div key={i} style={{ flex: 1, minWidth: 8, height: 6, borderRadius: 3, background: i < currentRound ? C.accent : i === currentRound ? C.text : C.surface, opacity: i < currentRound ? 0.5 : 1 }} />)}</div>
       {roundHistory.length > 0 && <div style={{ marginTop: 16, overflowX: "auto" }}>
         <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>Previous rounds</div>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
@@ -600,7 +595,7 @@ function BBGameScreen({ game, initialPlayers, settings, recentNames, addToRecent
 }
 
 // ═══════════════════════════════════════════
-// YAHTZEE
+// YAHTZEE — numeric keyboard on inputs
 // ═══════════════════════════════════════════
 function YahtzeeGameScreen({ game, initialPlayers, settings, recentNames, addToRecent, onExit, savedState }) {
   const initScores = () => { const s = {}; YZ_ALL.forEach((c) => s[c.key] = null); s.yahtzeeBonus = 0; return s; };
@@ -623,23 +618,13 @@ function YahtzeeGameScreen({ game, initialPlayers, settings, recentNames, addToR
   const calcUpperBonus = (scores) => calcUpperTotal(scores) >= 63 ? 35 : 0;
   const calcLowerTotal = (scores) => YZ_LOWER.reduce((s, c) => s + (scores[c.key] || 0), 0);
   const calcGrandTotal = (scores) => calcUpperTotal(scores) + calcUpperBonus(scores) + calcLowerTotal(scores) + (scores.yahtzeeBonus || 0);
-
-  const startEdit = (pid, key) => {
-    const p = players.find((pl) => pl.id === pid);
-    setEditingCell({ playerId: pid, key });
-    setEditValue(p.scores[key] !== null ? String(p.scores[key]) : "");
-  };
-  const confirmEdit = () => {
-    if (!editingCell) return;
-    const val = editValue.trim() === "" ? null : parseInt(editValue);
-    if (editValue.trim() !== "" && isNaN(val)) return;
-    setScore(editingCell.playerId, editingCell.key, val);
-  };
+  const startEdit = (pid, key) => { const p = players.find((pl) => pl.id === pid); setEditingCell({ playerId: pid, key }); setEditValue(p.scores[key] !== null ? String(p.scores[key]) : ""); };
+  const confirmEdit = () => { if (!editingCell) return; const val = editValue.trim() === "" ? null : parseInt(editValue); if (editValue.trim() !== "" && isNaN(val)) return; setScore(editingCell.playerId, editingCell.key, val); };
   const sorted = [...players].sort((a, b) => calcGrandTotal(b.scores) - calcGrandTotal(a.scores));
 
   if (finished) {
     return (
-      <div style={{ padding: "40px 20px", minHeight: "100vh" }}>
+      <div style={{ paddingTop: `calc(${safeTop} + 20px)`, paddingLeft: 20, paddingRight: 20, paddingBottom: 40, minHeight: "100vh" }}>
         <h2 style={{ fontSize: 24, fontWeight: 900, marginBottom: 4, color: C.orange }}>🎲 Final Scores!</h2>
         <p style={{ color: C.textDim, fontSize: 13, marginBottom: 24 }}>Yahtzee game complete</p>
         <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 32 }}>
@@ -652,8 +637,8 @@ function YahtzeeGameScreen({ game, initialPlayers, settings, recentNames, addToR
           ))}
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={() => setFinished(false)} style={{ ...pill, flex: 1, padding: "12px 0", background: C.surface, color: C.text, border: `1px solid ${C.border}`, borderRadius: 10 }}>← Back to scorecard</button>
-          <button onClick={onExit} style={{ ...pill, flex: 1, padding: "12px 0", background: C.accent, color: C.bg, borderRadius: 10 }}>Home</button>
+          <button onClick={() => setFinished(false)} style={{ ...ctrlBtn, flex: 1, padding: "12px 0", background: C.surface, color: C.text, border: `1px solid ${C.border}` }}>← Back to scorecard</button>
+          <button onClick={onExit} style={{ ...ctrlBtn, flex: 1, padding: "12px 0", background: C.accent, color: C.bg }}>Home</button>
         </div>
       </div>
     );
@@ -661,21 +646,22 @@ function YahtzeeGameScreen({ game, initialPlayers, settings, recentNames, addToR
 
   const renderScoreCell = (p, catKey) => {
     if (editingCell?.playerId === p.id && editingCell?.key === catKey) {
-      return <input value={editValue} onChange={(e) => { if (/^\d*$/.test(e.target.value)) setEditValue(e.target.value); }}
+      return <input value={editValue} inputMode="numeric" pattern="[0-9]*"
+        onChange={(e) => { if (/^\d*$/.test(e.target.value)) setEditValue(e.target.value); }}
         onKeyDown={(e) => { if (e.key === "Enter") confirmEdit(); if (e.key === "Escape") setEditingCell(null); }}
         onBlur={confirmEdit} autoFocus
-        style={{ width: 44, padding: "4px", borderRadius: 6, border: `2px solid ${C.orange}`, background: C.surface, color: C.text, fontSize: 14, fontWeight: 700, textAlign: "center", fontFamily: "inherit", outline: "none" }} />;
+        style={{ width: 44, padding: "4px", borderRadius: 6, border: `2px solid ${C.accent}`, background: C.surface, color: C.text, fontSize: 14, fontWeight: 700, textAlign: "center", fontFamily: "inherit", outline: "none" }} />;
     }
     return <button onClick={() => startEdit(p.id, catKey)} style={{ ...pill, padding: "6px 4px", width: "100%", fontSize: 14, fontWeight: 700, background: p.scores[catKey] !== null ? C.card : C.surface, color: p.scores[catKey] !== null ? C.text : C.textDim + "66", border: `1px solid ${C.border}`, borderRadius: 6, minWidth: 44 }}>{p.scores[catKey] !== null ? p.scores[catKey] : "—"}</button>;
   };
 
   return (
-    <div style={{ padding: "20px 8px", minHeight: "100vh" }}>
+    <div style={{ paddingTop: `calc(${safeTop} + 8px)`, paddingLeft: 8, paddingRight: 8, paddingBottom: 20, minHeight: "100vh" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
         <h2 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>{game.emoji} Yahtzee</h2>
         <div style={{ display: "flex", gap: 6 }}>
-          <button onClick={() => setFinished(true)} style={{ ...pill, background: `linear-gradient(135deg, ${C.orange}, #c87830)`, color: "#fff", fontSize: 12 }}>Finish</button>
-          <button onClick={onExit} style={{ ...pill, background: C.surface, color: C.textDim, border: `1px solid ${C.border}`, fontSize: 12 }}>Exit</button>
+          <button onClick={() => setFinished(true)} style={{ ...ctrlBtn, background: `linear-gradient(135deg, ${C.orange}, #c87830)`, color: "#fff" }}>Finish</button>
+          <button onClick={onExit} style={{ ...ctrlBtn, background: C.surface, color: C.textDim, border: `1px solid ${C.border}` }}>Exit</button>
         </div>
       </div>
       <div style={{ overflowX: "auto" }}>
@@ -685,7 +671,7 @@ function YahtzeeGameScreen({ game, initialPlayers, settings, recentNames, addToR
             {players.map((p) => <th key={p.id} style={{ padding: "6px 8px", textAlign: "center", color: C.text, borderBottom: `2px solid ${C.border}`, minWidth: 60 }}>{p.name.slice(0, 6)}</th>)}
           </tr></thead>
           <tbody>
-            <tr><td colSpan={players.length + 1} style={{ padding: "8px 8px 4px", fontSize: 10, fontWeight: 700, color: C.orange, textTransform: "uppercase", letterSpacing: 1 }}>Upper Section</td></tr>
+            <tr><td colSpan={players.length + 1} style={{ padding: "8px 8px 4px", fontSize: 10, fontWeight: 700, color: C.textDim, textTransform: "uppercase", letterSpacing: 1 }}>Upper Section</td></tr>
             {YZ_UPPER.map((cat) => (
               <tr key={cat.key}>
                 <td style={{ padding: "6px 8px", color: C.textDim, borderBottom: `1px solid ${C.border}22`, position: "sticky", left: 0, background: C.bg }}><div style={{ fontWeight: 600, color: C.text }}>{cat.label}</div></td>
@@ -700,7 +686,7 @@ function YahtzeeGameScreen({ game, initialPlayers, settings, recentNames, addToR
               <td style={{ padding: "4px 8px", fontSize: 11, color: C.textDim, position: "sticky", left: 0, background: C.surface }}>Bonus (≥63)</td>
               {players.map((p) => <td key={p.id} style={{ padding: "4px 4px", textAlign: "center", fontWeight: 700, fontSize: 11, color: calcUpperBonus(p.scores) > 0 ? C.green : C.textDim }}>{calcUpperBonus(p.scores) > 0 ? "+35" : `${calcUpperTotal(p.scores)}/63`}</td>)}
             </tr>
-            <tr><td colSpan={players.length + 1} style={{ padding: "8px 8px 4px", fontSize: 10, fontWeight: 700, color: C.orange, textTransform: "uppercase", letterSpacing: 1 }}>Lower Section</td></tr>
+            <tr><td colSpan={players.length + 1} style={{ padding: "8px 8px 4px", fontSize: 10, fontWeight: 700, color: C.textDim, textTransform: "uppercase", letterSpacing: 1 }}>Lower Section</td></tr>
             {YZ_LOWER.map((cat) => (
               <tr key={cat.key}>
                 <td style={{ padding: "6px 8px", color: C.textDim, borderBottom: `1px solid ${C.border}22`, position: "sticky", left: 0, background: C.bg }}>
@@ -724,8 +710,8 @@ function YahtzeeGameScreen({ game, initialPlayers, settings, recentNames, addToR
               </tr>
             )}
             <tr style={{ background: C.card }}>
-              <td style={{ padding: "10px 8px", fontWeight: 800, fontSize: 14, color: C.orange, position: "sticky", left: 0, background: C.card }}>Grand Total</td>
-              {players.map((p) => <td key={p.id} style={{ padding: "10px 4px", textAlign: "center", fontWeight: 900, fontSize: 18, color: C.orange }}>{calcGrandTotal(p.scores)}</td>)}
+              <td style={{ padding: "10px 8px", fontWeight: 800, fontSize: 14, color: C.accent, position: "sticky", left: 0, background: C.card }}>Grand Total</td>
+              {players.map((p) => <td key={p.id} style={{ padding: "10px 4px", textAlign: "center", fontWeight: 900, fontSize: 18, color: C.accent }}>{calcGrandTotal(p.scores)}</td>)}
             </tr>
           </tbody>
         </table>
