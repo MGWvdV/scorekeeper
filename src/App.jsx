@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { load, save } from "./storage.js";
 
 const PHASES = { IDLE: "idle", TOEPING: "toeping", PICK_WINNER: "pick_winner" };
@@ -25,6 +25,19 @@ const ctrlBtn = {
 };
 
 const RECENT_NAMES_DEFAULT = ["Max", "Tim", "Sanne", "Luuk", "Emma", "Daan"];
+
+const DEFAULT_SETTINGS = {
+  eliminationLimit: 15, povertyLevel: 0, jackMode: "off",
+  bbMaxCards: 8, bbBaseBonus: 10, bbUnderPenalty: -3, bbOverPenalty: -2, bbBonusPerTrick: 3, bbNoTrumpRound: true,
+  yzMultiple: false,
+};
+
+const GAME_INFO = {
+  toepen: { id: "toepen", name: "Toepen", emoji: "🃏", color: C.accent },
+  boerenbridge: { id: "boerenbridge", name: "Boerenbridge", emoji: "🂡", color: C.purple },
+  yahtzee: { id: "yahtzee", name: "Yahtzee", emoji: "🎲", color: C.orange },
+  counter: { id: "counter", name: "Counter", emoji: "🔢", color: C.blue },
+};
 
 // Safe area top padding for notched iPhones in PWA mode
 const safeTop = "max(20px, env(safe-area-inset-top, 20px))";
@@ -72,17 +85,18 @@ export default function App() {
   const [players, setPlayers] = useState([]);
   const [resumeData, setResumeData] = useState(null);
   const [recentNames, setRecentNames] = useState(load("recentNames", RECENT_NAMES_DEFAULT));
-  const [gameSettings, setGameSettings] = useState(load("gameSettings", {
-    eliminationLimit: 15,
-    bbMaxCards: 8, bbBaseBonus: 10, bbUnderPenalty: -3, bbOverPenalty: -2, bbBonusPerTrick: 3, bbNoTrumpRound: true,
-    yzMultiple: false,
-  }));
+  // Merge with defaults so settings added in newer versions get a value for existing users
+  const [gameSettings, setGameSettings] = useState(() => ({ ...DEFAULT_SETTINGS, ...load("gameSettings", {}) }));
+  const [gameLog, setGameLog] = useState(load("gameLog", []));
 
   useEffect(() => { const saved = load("activeGame", null); if (saved && saved.gameId) setResumeData(saved); }, []);
   useEffect(() => { save("gameSettings", gameSettings); }, [gameSettings]);
   useEffect(() => { save("recentNames", recentNames); }, [recentNames]);
+  useEffect(() => { save("gameLog", gameLog); }, [gameLog]);
 
-  const updateSetting = (key, val) => setGameSettings({ ...gameSettings, [key]: val });
+  const updateSetting = (key, val) => setGameSettings((s) => ({ ...s, [key]: val }));
+  // Store a finished game's result for the stats screen, then go home
+  const finishGame = (gameId, results) => { setGameLog((l) => [...l, { id: uid(), t: Date.now(), game: gameId, results }]); backToHome(); };
   const addToRecent = (name) => { const t = name.trim(); if (!t) return; setRecentNames((prev) => [t, ...prev.filter((n) => n.toLowerCase() !== t.toLowerCase())].slice(0, 20)); };
   const startGame = (game) => { setSelectedGame(game); setScreen("setup"); };
   const beginGame = () => { players.forEach((p) => addToRecent(p.name)); setScreen("game"); };
@@ -90,19 +104,19 @@ export default function App() {
 
   const resumeGame = () => {
     if (!resumeData) return;
-    const gameMap = { toepen: { id: "toepen", name: "Toepen", emoji: "🃏", color: C.accent }, boerenbridge: { id: "boerenbridge", name: "Boerenbridge", emoji: "🂡", color: C.purple }, yahtzee: { id: "yahtzee", name: "Yahtzee", emoji: "🎲", color: C.orange }, counter: { id: "counter", name: "Counter", emoji: "🔢", color: C.blue } };
-    setSelectedGame(gameMap[resumeData.gameId]); setScreen("game");
+    setSelectedGame(GAME_INFO[resumeData.gameId]); setScreen("game");
   };
   const dismissResume = () => { clearSavedGame(); setResumeData(null); };
 
   return (
     <div style={{ fontFamily: "'DM Sans','Avenir Next',system-ui,sans-serif", background: C.bg, color: C.text, minHeight: "100vh", maxWidth: 480, margin: "0 auto" }}>
-      {screen === "home" && <HomeScreen onSelect={startGame} resumeData={resumeData} onResume={resumeGame} onDismissResume={dismissResume} />}
+      {screen === "home" && <HomeScreen onSelect={startGame} onStats={() => setScreen("stats")} resumeData={resumeData} onResume={resumeGame} onDismissResume={dismissResume} />}
+      {screen === "stats" && <StatsScreen gameLog={gameLog} onBack={() => setScreen("home")} onClear={() => setGameLog([])} />}
       {screen === "setup" && <SetupScreen game={selectedGame} players={players} setPlayers={setPlayers} settings={gameSettings} updateSetting={updateSetting} recentNames={recentNames} addToRecent={addToRecent} onStart={beginGame} onBack={backToHome} />}
-      {screen === "game" && selectedGame.id === "toepen" && <ToepGameScreen game={selectedGame} initialPlayers={players} eliminationLimit={gameSettings.eliminationLimit} recentNames={recentNames} addToRecent={addToRecent} onExit={backToHome} savedState={resumeData?.gameId === "toepen" ? resumeData : null} />}
-      {screen === "game" && selectedGame.id === "counter" && <CounterGameScreen game={selectedGame} initialPlayers={players} recentNames={recentNames} addToRecent={addToRecent} onExit={backToHome} savedState={resumeData?.gameId === "counter" ? resumeData : null} />}
-      {screen === "game" && selectedGame.id === "boerenbridge" && <BBGameScreen game={selectedGame} initialPlayers={players} settings={gameSettings} recentNames={recentNames} addToRecent={addToRecent} onExit={backToHome} savedState={resumeData?.gameId === "boerenbridge" ? resumeData : null} />}
-      {screen === "game" && selectedGame.id === "yahtzee" && <YahtzeeGameScreen game={selectedGame} initialPlayers={players} settings={gameSettings} recentNames={recentNames} addToRecent={addToRecent} onExit={backToHome} savedState={resumeData?.gameId === "yahtzee" ? resumeData : null} />}
+      {screen === "game" && selectedGame.id === "toepen" && <ToepGameScreen game={selectedGame} initialPlayers={players} settings={gameSettings} updateSetting={updateSetting} recentNames={recentNames} addToRecent={addToRecent} onExit={backToHome} onFinish={finishGame} savedState={resumeData?.gameId === "toepen" ? resumeData : null} />}
+      {screen === "game" && selectedGame.id === "counter" && <CounterGameScreen game={selectedGame} initialPlayers={players} settings={gameSettings} updateSetting={updateSetting} recentNames={recentNames} addToRecent={addToRecent} onExit={backToHome} savedState={resumeData?.gameId === "counter" ? resumeData : null} />}
+      {screen === "game" && selectedGame.id === "boerenbridge" && <BBGameScreen game={selectedGame} initialPlayers={players} settings={gameSettings} updateSetting={updateSetting} recentNames={recentNames} addToRecent={addToRecent} onExit={backToHome} onFinish={finishGame} savedState={resumeData?.gameId === "boerenbridge" ? resumeData : null} />}
+      {screen === "game" && selectedGame.id === "yahtzee" && <YahtzeeGameScreen game={selectedGame} initialPlayers={players} settings={gameSettings} updateSetting={updateSetting} recentNames={recentNames} addToRecent={addToRecent} onExit={backToHome} onFinish={finishGame} savedState={resumeData?.gameId === "yahtzee" ? resumeData : null} />}
     </div>
   );
 }
@@ -110,13 +124,8 @@ export default function App() {
 // ═══════════════════════════════════════════
 // HOME SCREEN
 // ═══════════════════════════════════════════
-function HomeScreen({ onSelect, resumeData, onResume, onDismissResume }) {
-  const games = [
-    { id: "toepen", name: "Toepen", emoji: "🃏", color: C.accent },
-    { id: "boerenbridge", name: "Boerenbridge", emoji: "🂡", color: C.purple },
-    { id: "yahtzee", name: "Yahtzee", emoji: "🎲", color: C.orange },
-    { id: "counter", name: "Counter", emoji: "🔢", color: C.blue },
-  ];
+function HomeScreen({ onSelect, onStats, resumeData, onResume, onDismissResume }) {
+  const games = [GAME_INFO.toepen, GAME_INFO.boerenbridge, GAME_INFO.yahtzee, GAME_INFO.counter];
   const resumeGameInfo = resumeData ? games.find((g) => g.id === resumeData.gameId) : null;
 
   return (
@@ -141,6 +150,10 @@ function HomeScreen({ onSelect, resumeData, onResume, onDismissResume }) {
             <span style={{ fontSize: 20, fontWeight: 700, color: g.color }}>{g.name}</span>
           </div>
         ))}
+        <div onClick={onStats} style={{ display: "flex", alignItems: "center", gap: 16, background: C.surface, borderRadius: 14, padding: "14px 20px", cursor: "pointer", border: `1px solid ${C.border}`, marginTop: 6 }}>
+          <span style={{ fontSize: 28, width: 44, textAlign: "center", flexShrink: 0 }}>📊</span>
+          <span style={{ fontSize: 17, fontWeight: 700, color: C.textDim }}>Stats</span>
+        </div>
       </div>
     </div>
   );
@@ -163,26 +176,7 @@ function SetupScreen({ game, players, setPlayers, settings, updateSetting, recen
       <h2 style={{ fontSize: 22, fontWeight: 800, marginBottom: 4 }}>{game.emoji} {game.name}</h2>
       <p style={{ color: C.textDim, fontSize: 13, marginBottom: 24 }}>Add players and set the rules</p>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 }}>
-        {game.id === "toepen" && <NumStepper label="Elimination at" value={settings.eliminationLimit} onChange={(v) => updateSetting("eliminationLimit", v)} min={5} max={30} color={C.accent} suffix="lives" />}
-        {game.id === "boerenbridge" && (<>
-          <NumStepper label="Max cards per round" value={settings.bbMaxCards} onChange={(v) => updateSetting("bbMaxCards", v)} min={3} max={13} color={C.text} />
-          <NumStepper label="Base bonus (correct)" value={settings.bbBaseBonus} onChange={(v) => updateSetting("bbBaseBonus", v)} min={0} max={20} color={C.text} />
-          <NumStepper label="Bonus per trick" value={settings.bbBonusPerTrick} onChange={(v) => updateSetting("bbBonusPerTrick", v)} min={0} max={10} color={C.text} />
-          <NumStepper label="Penalty under (per diff)" value={settings.bbUnderPenalty} onChange={(v) => updateSetting("bbUnderPenalty", v)} min={-10} max={0} color={C.red} />
-          <NumStepper label="Penalty over (per diff)" value={settings.bbOverPenalty} onChange={(v) => updateSetting("bbOverPenalty", v)} min={-10} max={0} color={C.red} />
-          <div style={{ display: "flex", alignItems: "center", gap: 12, background: C.surface, padding: "10px 16px", borderRadius: 12 }}>
-            <span style={{ fontSize: 13, color: C.textDim, flex: 1 }}>No-trump round at max cards</span>
-            <button onClick={() => updateSetting("bbNoTrumpRound", !settings.bbNoTrumpRound)} style={{ ...pill, padding: "6px 16px", background: settings.bbNoTrumpRound ? C.accent + "33" : C.card, color: settings.bbNoTrumpRound ? C.accent : C.textDim, border: `1px solid ${settings.bbNoTrumpRound ? C.accent + "66" : C.border}` }}>{settings.bbNoTrumpRound ? "ON" : "OFF"}</button>
-          </div>
-        </>)}
-        {game.id === "yahtzee" && (
-          <div style={{ display: "flex", alignItems: "center", gap: 12, background: C.surface, padding: "10px 16px", borderRadius: 12 }}>
-            <span style={{ fontSize: 13, color: C.textDim, flex: 1 }}>Allow multiple Yahtzees (+100 bonus)</span>
-            <button onClick={() => updateSetting("yzMultiple", !settings.yzMultiple)} style={{ ...pill, padding: "6px 16px", background: settings.yzMultiple ? C.accent + "33" : C.card, color: settings.yzMultiple ? C.accent : C.textDim, border: `1px solid ${settings.yzMultiple ? C.accent + "66" : C.border}` }}>{settings.yzMultiple ? "ON" : "OFF"}</button>
-          </div>
-        )}
-      </div>
+      <div style={{ marginBottom: 24 }}><SettingsPanel gameId={game.id} settings={settings} updateSetting={updateSetting} /></div>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
         <input value={nameInput} onChange={(e) => setNameInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addPlayer(nameInput)} placeholder="Player name..."
@@ -230,11 +224,144 @@ function AddPlayerPopup({ players, recentNames, onAdd, onClose }) {
   );
 }
 
-function GameMenu({ onAddPlayer, onExit }) {
+function GameMenu({ onAddPlayer, onSettings, onReset, onExit }) {
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [confirmEnd, setConfirmEnd] = useState(false);
   return (
     <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12, marginBottom: 16, display: "flex", flexDirection: "column", gap: 8 }}>
-      <button onClick={onAddPlayer} style={{ ...ctrlBtn, background: C.surface, color: C.text, textAlign: "left" }}>+ Add Player</button>
-      <button onClick={onExit} style={{ ...ctrlBtn, background: C.red + "22", color: C.red, textAlign: "left" }}>End Game</button>
+      {onAddPlayer && <button onClick={onAddPlayer} style={{ ...ctrlBtn, background: C.surface, color: C.text, textAlign: "left" }}>+ Add Player</button>}
+      {onSettings && <button onClick={onSettings} style={{ ...ctrlBtn, background: C.surface, color: C.text, textAlign: "left" }}>⚙ Settings</button>}
+      {onReset && <button onClick={() => confirmReset ? onReset() : setConfirmReset(true)} style={{ ...ctrlBtn, background: confirmReset ? C.accent + "33" : C.surface, color: confirmReset ? C.accent : C.text, textAlign: "left" }}>{confirmReset ? "Tap again to reset scores" : "↺ Reset game"}</button>}
+      <button onClick={() => confirmEnd ? onExit() : setConfirmEnd(true)} style={{ ...ctrlBtn, background: C.red + "22", color: C.red, textAlign: "left" }}>{confirmEnd ? "Tap again — result is not saved" : "End Game"}</button>
+    </div>
+  );
+}
+
+function ToggleRow({ label, value, onChange }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12, background: C.surface, padding: "10px 16px", borderRadius: 12 }}>
+      <span style={{ fontSize: 13, color: C.textDim, flex: 1 }}>{label}</span>
+      <button onClick={() => onChange(!value)} style={{ ...pill, padding: "6px 16px", background: value ? C.accent + "33" : C.card, color: value ? C.accent : C.textDim, border: `1px solid ${value ? C.accent + "66" : C.border}` }}>{value ? "ON" : "OFF"}</button>
+    </div>
+  );
+}
+
+function ChoiceRow({ label, value, options, onChange }) {
+  return (
+    <div style={{ background: C.surface, padding: "10px 16px", borderRadius: 12 }}>
+      <div style={{ fontSize: 13, color: C.textDim, marginBottom: 8 }}>{label}</div>
+      <div style={{ display: "flex", gap: 6 }}>
+        {options.map(([val, text]) => (
+          <button key={val} onClick={() => onChange(val)} style={{ ...pill, flex: 1, padding: "8px 0", textAlign: "center", background: value === val ? C.accent + "33" : C.card, color: value === val ? C.accent : C.textDim, border: `1px solid ${value === val ? C.accent + "66" : C.border}` }}>{text}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Rules for each game. Used on the setup screen and inside a running game (inGame hides settings that can't change mid-game).
+function SettingsPanel({ gameId, settings, updateSetting, inGame }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {gameId === "toepen" && (<>
+        <NumStepper label="Elimination at" value={settings.eliminationLimit} onChange={(v) => updateSetting("eliminationLimit", v)} min={5} max={50} color={C.accent} suffix="lives" />
+        <NumStepper label="Armoede at (0 = off)" value={settings.povertyLevel} onChange={(v) => updateSetting("povertyLevel", v)} min={0} max={Math.max(0, settings.eliminationLimit - 1)} color={C.accent} suffix="pts" />
+        <ChoiceRow label="Winning with a boer (J)" value={settings.jackMode} options={[["off", "No effect"], ["plus1", "+1 for losers"], ["x2", "Stake ×2"]]} onChange={(v) => updateSetting("jackMode", v)} />
+      </>)}
+      {gameId === "boerenbridge" && (<>
+        {!inGame && <NumStepper label="Max cards per round" value={settings.bbMaxCards} onChange={(v) => updateSetting("bbMaxCards", v)} min={3} max={13} color={C.text} />}
+        <NumStepper label="Base bonus (correct)" value={settings.bbBaseBonus} onChange={(v) => updateSetting("bbBaseBonus", v)} min={0} max={20} color={C.text} />
+        <NumStepper label="Bonus per trick" value={settings.bbBonusPerTrick} onChange={(v) => updateSetting("bbBonusPerTrick", v)} min={0} max={10} color={C.text} />
+        <NumStepper label="Penalty under (per diff)" value={settings.bbUnderPenalty} onChange={(v) => updateSetting("bbUnderPenalty", v)} min={-10} max={0} color={C.red} />
+        <NumStepper label="Penalty over (per diff)" value={settings.bbOverPenalty} onChange={(v) => updateSetting("bbOverPenalty", v)} min={-10} max={0} color={C.red} />
+        {!inGame && <ToggleRow label="No-trump round at max cards" value={settings.bbNoTrumpRound} onChange={(v) => updateSetting("bbNoTrumpRound", v)} />}
+      </>)}
+      {gameId === "yahtzee" && <ToggleRow label="Allow multiple Yahtzees (+100 bonus)" value={settings.yzMultiple} onChange={(v) => updateSetting("yzMultiple", v)} />}
+    </div>
+  );
+}
+
+function InGameSettings({ gameId, settings, updateSetting, onClose }) {
+  return (
+    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12, marginBottom: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <span style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: 1 }}>Settings — apply immediately</span>
+        <button onClick={onClose} style={{ ...pill, background: C.surface, color: C.textDim }}>✕</button>
+      </div>
+      <SettingsPanel gameId={gameId} settings={settings} updateSetting={updateSetting} inGame />
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════
+// STATS — built from the saved results of finished games
+// ═══════════════════════════════════════════
+function StatsScreen({ gameLog, onBack, onClear }) {
+  const [filter, setFilter] = useState("all");
+  const [confirmClear, setConfirmClear] = useState(false);
+  const filters = [["all", "All"], ["toepen", "Toepen"], ["boerenbridge", "Boerenbridge"], ["yahtzee", "Yahtzee"]];
+  const entries = gameLog.filter((e) => filter === "all" || e.game === filter);
+
+  const byPlayer = {};
+  entries.forEach((e) => e.results.forEach((r) => {
+    const k = r.name.trim().toLowerCase();
+    if (!byPlayer[k]) byPlayer[k] = { name: r.name, played: 0, won: 0, form: [], perGame: {} };
+    const s = byPlayer[k];
+    s.played += 1; if (r.won) s.won += 1;
+    s.form.push(!!r.won);
+    if (!s.perGame[e.game]) s.perGame[e.game] = { played: 0, won: 0 };
+    s.perGame[e.game].played += 1; if (r.won) s.perGame[e.game].won += 1;
+  }));
+  const rows = Object.values(byPlayer).sort((a, b) => b.won - a.won || (b.won / b.played) - (a.won / a.played));
+  const fmtDate = (t) => new Date(t).toLocaleDateString("nl-NL", { day: "numeric", month: "short" });
+
+  return (
+    <div style={{ paddingTop: `calc(${safeTop} + 20px)`, paddingLeft: 20, paddingRight: 20, paddingBottom: 40 }}>
+      <button onClick={onBack} style={{ ...ctrlBtn, background: "transparent", color: C.textDim, padding: "8px 0", marginBottom: 12 }}>← Back</button>
+      <h2 style={{ fontSize: 22, fontWeight: 800, marginBottom: 4 }}>📊 Stats</h2>
+      <p style={{ color: C.textDim, fontSize: 13, marginBottom: 16 }}>{gameLog.length} saved game{gameLog.length === 1 ? "" : "s"} — saved when you finish a game via "Save result"</p>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
+        {filters.map(([val, text]) => (
+          <button key={val} onClick={() => setFilter(val)} style={{ ...pill, background: filter === val ? C.accent + "33" : C.surface, color: filter === val ? C.accent : C.textDim, border: `1px solid ${filter === val ? C.accent + "66" : C.border}` }}>{text}</button>
+        ))}
+      </div>
+      {rows.length === 0 ? <p style={{ color: C.textDim, fontSize: 14 }}>No games yet. Finish a game and tap "Save result & Home" to start tracking.</p> : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 24 }}>
+          {rows.map((s) => {
+            const rate = Math.round((s.won / s.played) * 100);
+            return (
+              <div key={s.name} style={{ background: C.card, borderRadius: 14, padding: "14px 16px", border: `1px solid ${C.border}` }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                  <span style={{ fontSize: 16, fontWeight: 700 }}>{s.name}</span>
+                  <span style={{ fontSize: 24, fontWeight: 900, color: rate >= 50 ? C.green : C.text }}>{rate}%</span>
+                </div>
+                <div style={{ fontSize: 13, color: C.textDim, marginBottom: 8 }}>{s.won} won · {s.played - s.won} lost · {s.played} played</div>
+                <div style={{ display: "flex", gap: 4, alignItems: "center", marginBottom: filter === "all" ? 8 : 0 }}>
+                  <span style={{ fontSize: 10, color: C.textDim, textTransform: "uppercase", letterSpacing: 1, marginRight: 4 }}>Form</span>
+                  {s.form.slice(-10).map((w, i) => <span key={i} style={{ width: 14, height: 14, borderRadius: 7, background: w ? C.green : C.red + "88" }} />)}
+                </div>
+                {filter === "all" && <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  {Object.entries(s.perGame).map(([g, v]) => <span key={g} style={{ fontSize: 12, color: C.textDim }}>{GAME_INFO[g]?.emoji} {v.won}/{v.played}</span>)}
+                </div>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {entries.length > 0 && <div style={{ background: C.surface, borderRadius: 12, padding: "12px 14px", marginBottom: 24 }}>
+        <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Recent games</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {[...entries].reverse().slice(0, 15).map((e) => {
+            const winners = e.results.filter((r) => r.won).map((r) => r.name).join(", ");
+            return <div key={e.id} style={{ display: "flex", gap: 8, fontSize: 13, alignItems: "center" }}>
+              <span style={{ color: C.textDim, fontSize: 11, width: 44 }}>{fmtDate(e.t)}</span>
+              <span>{GAME_INFO[e.game]?.emoji}</span>
+              <span style={{ flex: 1 }}>🏆 {winners} <span style={{ color: C.textDim }}>({e.results.length} players)</span></span>
+            </div>;
+          })}
+        </div>
+      </div>}
+      {gameLog.length > 0 && <button onClick={() => confirmClear ? (onClear(), setConfirmClear(false)) : setConfirmClear(true)} style={{ ...ctrlBtn, width: "100%", background: C.red + "22", color: C.red }}>{confirmClear ? "Tap again to delete all stats" : "Clear all stats"}</button>}
     </div>
   );
 }
@@ -242,19 +369,31 @@ function GameMenu({ onAddPlayer, onExit }) {
 // ═══════════════════════════════════════════
 // TOEPEN — finish round always available
 // ═══════════════════════════════════════════
-function ToepGameScreen({ game, initialPlayers, eliminationLimit, recentNames, addToRecent, onExit, savedState }) {
-  const init = savedState || { players: initialPlayers.map((p) => ({ ...p, score: 0, inRound: true, quitThisRound: false })), stake: 1, phase: PHASES.IDLE, history: [] };
+function ToepGameScreen({ game, initialPlayers, settings, updateSetting, recentNames, addToRecent, onExit, onFinish, savedState }) {
+  const eliminationLimit = settings.eliminationLimit;
+  const povertyLevel = settings.povertyLevel || 0;
+  const jackMode = settings.jackMode || "off";
+  const init = savedState || { players: initialPlayers.map((p) => ({ ...p, score: 0, inRound: true, quitThisRound: false })), stake: 1, phase: PHASES.IDLE, history: [], povertyId: null, wonWithJack: false };
   const [players, setPlayers] = useState(init.players);
   const [stake, setStake] = useState(init.stake);
   const [phase, setPhase] = useState(init.phase);
   const [history, setHistory] = useState(init.history || []);
+  const [povertyId, setPovertyId] = useState(init.povertyId || null);
+  const [wonWithJack, setWonWithJack] = useState(init.wonWithJack || false);
   const [showMenu, setShowMenu] = useState(false);
   const [showAddPlayer, setShowAddPlayer] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
-  useAutoSave("activeGame", { gameId: "toepen", players, stake, phase, history });
+  useAutoSave("activeGame", { gameId: "toepen", players, stake, phase, history, povertyId, wonWithJack });
 
   const inRoundPlayers = players.filter((p) => p.inRound && !p.quitThisRound && p.score < eliminationLimit);
-  const snapshot = () => JSON.parse(JSON.stringify({ players, stake, phase }));
+  const alive = players.filter((p) => p.score < eliminationLimit);
+  const gameOver = players.length >= 2 && alive.length <= 1 && phase === PHASES.IDLE;
+  const gameWinner = gameOver ? (alive[0] || [...players].sort((a, b) => a.score - b.score)[0]) : null;
+  const povertyPlayer = povertyId ? players.find((p) => p.id === povertyId) : null;
+  const jackActive = jackMode !== "off";
+
+  const snapshot = () => JSON.parse(JSON.stringify({ players, stake, phase, povertyId, wonWithJack }));
   const pushHistory = (label) => setHistory((h) => [...h, { label, state: snapshot() }]);
 
   const handleToep = (pid) => { pushHistory(`Toep by ${players.find((p) => p.id === pid)?.name}`); setStake((s) => s + 1); setPhase(PHASES.TOEPING); };
@@ -267,18 +406,42 @@ function ToepGameScreen({ game, initialPlayers, eliminationLimit, recentNames, a
   // Finish round = go to pick winner (available in both IDLE and TOEPING)
   const handleFinishRound = () => { pushHistory("Finish round → pick winner"); setPhase(PHASES.PICK_WINNER); };
   const handlePickWinner = (wid) => {
-    pushHistory(`${players.find((p) => p.id === wid).name} wins round`);
-    setPlayers(players.map((p) => {
+    const winner = players.find((p) => p.id === wid);
+    const jack = wonWithJack && jackActive;
+    const penalty = jack ? (jackMode === "x2" ? stake * 2 : stake + 1) : stake;
+    pushHistory(`${winner.name} wins round${jack ? ` with boer (${jackMode === "x2" ? "×2" : "+1"}, losers +${penalty})` : ""}`);
+    const next = players.map((p) => {
       if (p.id === wid || p.quitThisRound || p.score >= eliminationLimit || !p.inRound) return { ...p, inRound: true, quitThisRound: false };
-      return { ...p, score: p.score + stake, inRound: true, quitThisRound: false };
-    }));
-    setStake(1); setPhase(PHASES.IDLE);
+      return { ...p, score: p.score + penalty, inRound: true, quitThisRound: false };
+    });
+    setPlayers(next);
+    setWonWithJack(false);
+    // Poverty (armoede): the first player sitting exactly on the poverty score toeps automatically
+    const aliveNext = next.filter((p) => p.score < eliminationLimit);
+    const pov = povertyLevel > 0 && aliveNext.length > 1 ? aliveNext.find((p) => p.score === povertyLevel) : null;
+    if (pov) { setStake(2); setPhase(PHASES.TOEPING); setPovertyId(pov.id); }
+    else { setStake(1); setPhase(PHASES.IDLE); setPovertyId(null); }
   };
-  const handleUndo = () => { if (!history.length) return; const prev = history[history.length - 1].state; setPlayers(prev.players); setStake(prev.stake); setPhase(prev.phase); setHistory((h) => h.slice(0, -1)); };
+  const handleUndo = () => {
+    if (!history.length) return;
+    const prev = history[history.length - 1].state;
+    setPlayers(prev.players); setStake(prev.stake); setPhase(prev.phase); setPovertyId(prev.povertyId || null); setWonWithJack(prev.wonWithJack || false);
+    setHistory((h) => h.slice(0, -1));
+  };
+  const handleReset = () => {
+    pushHistory("Reset game");
+    setPlayers(players.map((p) => ({ ...p, score: 0, inRound: true, quitThisRound: false })));
+    setStake(1); setPhase(PHASES.IDLE); setPovertyId(null); setWonWithJack(false); setShowMenu(false);
+  };
   const adjustScore = (pid, d) => { pushHistory("Manual adjust"); setPlayers(players.map((p) => p.id === pid ? { ...p, score: Math.max(0, p.score + d) } : p)); };
   const addMid = (name) => { const t = name.trim(); if (!t || players.find((p) => p.name === t)) return; addToRecent(t); setPlayers([...players, { id: uid(), name: t, score: 0, inRound: true, quitThisRound: false }]); };
   const removeMid = (id) => setPlayers(players.filter((p) => p.id !== id));
   const moveMid = (i, d) => { const n = [...players]; const s = i + d; if (s < 0 || s >= n.length) return; [n[i], n[s]] = [n[s], n[i]]; setPlayers(n); };
+  const saveAndHome = () => onFinish("toepen", players.map((p) => ({ name: p.name, score: p.score, won: p.id === gameWinner.id })));
+
+  // Grid: up to 3 across, 4 players → 2x2, 5+ → rows of 3
+  const n = players.length;
+  const cols = n <= 3 ? Math.max(n, 1) : n === 4 ? 2 : 3;
 
   return (
     <div style={{ paddingTop: `calc(${safeTop} + 8px)`, paddingLeft: 12, paddingRight: 12, paddingBottom: 20, minHeight: "100vh" }}>
@@ -292,21 +455,39 @@ function ToepGameScreen({ game, initialPlayers, eliminationLimit, recentNames, a
           <button onClick={() => setShowMenu(!showMenu)} style={{ ...ctrlBtn, background: C.surface, color: C.text, border: `1px solid ${C.border}`, fontSize: 18, padding: "8px 14px" }}>⋮</button>
         </div>
       </div>
-      <div style={{ padding: "8px 14px", borderRadius: 8, marginBottom: 16, fontSize: 13, fontWeight: 600, background: phase === PHASES.IDLE ? C.surface : phase === PHASES.TOEPING ? C.accent + "22" : C.green + "22", color: phase === PHASES.IDLE ? C.textDim : phase === PHASES.TOEPING ? C.accent : C.green, border: `1px solid ${phase === PHASES.IDLE ? C.border : phase === PHASES.TOEPING ? C.accent + "44" : C.green + "44"}` }}>
-        {phase === PHASES.IDLE && "Ready — tap Toep or finish the round"}
-        {phase === PHASES.TOEPING && `Toep! Stake is ${stake}. Quitting costs ${stake - 1}.`}
-        {phase === PHASES.PICK_WINNER && "Pick the round winner"}
-      </div>
-      {showMenu && <GameMenu onAddPlayer={() => { setShowAddPlayer(true); setShowMenu(false); }} onExit={onExit} />}
+      {gameOver ? (
+        <div style={{ padding: "14px 16px", borderRadius: 12, marginBottom: 16, background: C.accent + "22", border: `1px solid ${C.accent}55` }}>
+          <div style={{ fontSize: 18, fontWeight: 900, color: C.accent, marginBottom: 10 }}>🏆 {gameWinner.name} wins the game!</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={saveAndHome} style={{ ...ctrlBtn, flex: 1, background: C.accent, color: C.bg, fontWeight: 800 }}>Save result & Home</button>
+            <button onClick={() => updateSetting("eliminationLimit", eliminationLimit + 5)} style={{ ...ctrlBtn, flex: 1, background: C.surface, color: C.text, border: `1px solid ${C.border}` }}>Play on (+5 lives)</button>
+          </div>
+        </div>
+      ) : (
+        <div style={{ padding: "8px 14px", borderRadius: 8, marginBottom: 16, fontSize: 13, fontWeight: 600, background: phase === PHASES.IDLE ? C.surface : phase === PHASES.TOEPING ? C.accent + "22" : C.green + "22", color: phase === PHASES.IDLE ? C.textDim : phase === PHASES.TOEPING ? C.accent : C.green, border: `1px solid ${phase === PHASES.IDLE ? C.border : phase === PHASES.TOEPING ? C.accent + "44" : C.green + "44"}` }}>
+          {phase === PHASES.IDLE && "Ready — tap Toep or finish the round"}
+          {phase === PHASES.TOEPING && `${povertyPlayer ? `Armoede! ${povertyPlayer.name} toept automatisch. ` : "Toep! "}Stake is ${stake}. Quitting costs ${stake - 1}.`}
+          {phase === PHASES.PICK_WINNER && "Pick the round winner"}
+        </div>
+      )}
+      {showMenu && <GameMenu onAddPlayer={() => { setShowAddPlayer(true); setShowMenu(false); }} onSettings={() => { setShowSettings(!showSettings); setShowMenu(false); }} onReset={handleReset} onExit={onExit} />}
       {showAddPlayer && <AddPlayerPopup players={players} recentNames={recentNames} onAdd={addMid} onClose={() => setShowAddPlayer(false)} />}
-      <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 12 }}>
+      {showSettings && <InGameSettings gameId="toepen" settings={settings} updateSetting={updateSetting} onClose={() => setShowSettings(false)} />}
+      {phase === PHASES.PICK_WINNER && jackActive && (
+        <button onClick={() => setWonWithJack(!wonWithJack)} style={{ ...pill, width: "100%", padding: "12px 14px", marginBottom: 12, borderRadius: 10, fontSize: 13, textAlign: "left", background: wonWithJack ? C.accent + "33" : C.surface, color: wonWithJack ? C.accent : C.textDim, border: `1px solid ${wonWithJack ? C.accent + "66" : C.border}` }}>
+          {wonWithJack ? "✓ " : "○ "}Won with boer (J) — {jackMode === "x2" ? "stake ×2" : "+1 point"} for the others
+        </button>
+      )}
+      <div style={{ display: "grid", gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gap: 6, paddingBottom: 12 }}>
         {players.map((p, idx) => {
           const elim = p.score >= eliminationLimit; const quit = p.quitThisRound; const active = !elim && !quit && p.inRound;
+          const isPoverty = p.id === povertyId;
           return (
-            <div key={p.id} style={{ minWidth: 100, flex: 1, background: elim ? C.eliminated : quit ? C.surface : C.card, borderRadius: 14, padding: "14px 8px", display: "flex", flexDirection: "column", alignItems: "center", gap: 8, border: `1px solid ${elim ? C.red + "33" : C.border}`, opacity: elim ? 0.5 : quit ? 0.65 : 1 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, textAlign: "center", lineHeight: 1.2, minHeight: 28, display: "flex", alignItems: "center" }}>{p.name}</div>
-              <div><div style={{ fontSize: 34, fontWeight: 900, color: elim ? C.red : p.score >= eliminationLimit - 3 ? C.red : C.text }}>{p.score}</div>
-                {elim && <div style={{ fontSize: 9, color: C.red, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, textAlign: "center" }}>OUT</div>}</div>
+            <div key={p.id} style={{ minWidth: 0, background: elim ? C.eliminated : quit ? C.surface : C.card, borderRadius: 14, padding: "14px 8px", display: "flex", flexDirection: "column", alignItems: "center", gap: 8, border: `1px solid ${isPoverty ? C.accent + "88" : elim ? C.red + "33" : C.border}`, opacity: elim ? 0.5 : quit ? 0.65 : 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, textAlign: "center", lineHeight: 1.2, minHeight: 28, display: "flex", alignItems: "center", wordBreak: "break-word" }}>{p.name}</div>
+              <div><div style={{ fontSize: 34, fontWeight: 900, color: elim ? C.red : p.score >= eliminationLimit - 3 ? C.red : C.text, textAlign: "center" }}>{p.score}</div>
+                {elim && <div style={{ fontSize: 9, color: C.red, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, textAlign: "center" }}>OUT</div>}
+                {isPoverty && !elim && <div style={{ fontSize: 9, color: C.accent, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, textAlign: "center" }}>Armoede</div>}</div>
               {!elim && <div style={{ display: "flex", gap: 6, width: "100%" }}>
                 <button onClick={() => adjustScore(p.id, -1)} style={{ ...pill, flex: 1, padding: "10px 0", fontSize: 22, fontWeight: 800, background: C.surface, color: C.textDim, textAlign: "center", borderRadius: 10, lineHeight: 1 }}>−</button>
                 <button onClick={() => adjustScore(p.id, 1)} style={{ ...pill, flex: 1, padding: "10px 0", fontSize: 22, fontWeight: 800, background: C.surface, color: C.textDim, textAlign: "center", borderRadius: 10, lineHeight: 1 }}>+</button>
@@ -315,9 +496,9 @@ function ToepGameScreen({ game, initialPlayers, eliminationLimit, recentNames, a
                 {phase === PHASES.IDLE && <button onClick={() => handleToep(p.id)} style={{ ...pill, width: "100%", padding: "10px 0", background: `linear-gradient(135deg, ${C.accent}, ${C.accentDim})`, color: C.bg, fontSize: 13, fontWeight: 700, borderRadius: 10 }}>Toep</button>}
                 {phase === PHASES.TOEPING && active && <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                   <button onClick={() => handleToep(p.id)} style={{ ...pill, width: "100%", padding: "9px 0", background: C.accent + "22", color: C.accent, fontSize: 12, fontWeight: 700, border: `1px solid ${C.accent}44`, borderRadius: 10 }}>Toep</button>
-                  <button onClick={() => handleQuit(p.id)} style={{ ...pill, width: "100%", padding: "9px 0", background: C.red + "22", color: C.red, fontSize: 12, fontWeight: 700, border: `1px solid ${C.red}44`, borderRadius: 10 }}>Quit</button>
+                  {!(isPoverty && stake === 2) && <button onClick={() => handleQuit(p.id)} style={{ ...pill, width: "100%", padding: "9px 0", background: C.red + "22", color: C.red, fontSize: 12, fontWeight: 700, border: `1px solid ${C.red}44`, borderRadius: 10 }}>Quit</button>}
                 </div>}
-                {phase === PHASES.TOEPING && quit && <div style={{ fontSize: 12, color: C.red, fontWeight: 700, textAlign: "center", padding: "8px 0" }}>Quit (+{stake - 1})</div>}
+                {phase === PHASES.TOEPING && quit && <div style={{ fontSize: 12, color: C.red, fontWeight: 700, textAlign: "center", padding: "8px 0" }}>Quit</div>}
                 {phase === PHASES.PICK_WINNER && active && <button onClick={() => handlePickWinner(p.id)} style={{ ...pill, width: "100%", padding: "10px 0", background: C.green + "22", color: C.green, fontSize: 13, fontWeight: 700, border: `1px solid ${C.green}44`, borderRadius: 10 }}>Winner</button>}
               </div>}
               <div style={{ display: "flex", gap: 6, marginTop: 2 }}>
@@ -330,7 +511,7 @@ function ToepGameScreen({ game, initialPlayers, eliminationLimit, recentNames, a
         })}
       </div>
       {/* Finish round button — always available when not already picking winner */}
-      {phase !== PHASES.PICK_WINNER && inRoundPlayers.length >= 1 && (
+      {!gameOver && phase !== PHASES.PICK_WINNER && inRoundPlayers.length >= 1 && (
         <button onClick={handleFinishRound} style={{ ...pill, width: "100%", padding: "14px 0", marginTop: 12, background: `linear-gradient(135deg, ${C.green}, #38a85c)`, color: C.bg, fontSize: 15, fontWeight: 800, borderRadius: 12 }}>Finish Round → Pick Winner</button>
       )}
       {history.length > 0 && <div style={{ marginTop: 24, padding: "12px 14px", background: C.surface, borderRadius: 12 }}>
@@ -342,26 +523,45 @@ function ToepGameScreen({ game, initialPlayers, eliminationLimit, recentNames, a
 }
 
 // ═══════════════════════════════════════════
-// COUNTER — numeric keyboard on inputs
+// COUNTER — numeric keyboard on inputs, with change log
 // ═══════════════════════════════════════════
-function CounterGameScreen({ game, initialPlayers, recentNames, addToRecent, onExit, savedState }) {
-  const init = savedState || { players: initialPlayers.map((p) => ({ ...p, score: 0 })), history: [] };
+function CounterGameScreen({ game, initialPlayers, settings, updateSetting, recentNames, addToRecent, onExit, savedState }) {
+  const init = savedState || { players: initialPlayers.map((p) => ({ ...p, score: 0 })), history: [], log: [] };
   const [players, setPlayers] = useState(init.players);
   const [addInputs, setAddInputs] = useState({});
   const [showMenu, setShowMenu] = useState(false);
   const [showAddPlayer, setShowAddPlayer] = useState(false);
   const [history, setHistory] = useState(init.history || []);
+  const [log, setLog] = useState(init.log || []);
+  const [showLog, setShowLog] = useState(true);
 
-  useAutoSave("activeGame", { gameId: "counter", players, history });
+  useAutoSave("activeGame", { gameId: "counter", players, history, log });
 
-  const pushHistory = () => setHistory((h) => [...h, JSON.parse(JSON.stringify(players))]);
-  const handleUndo = () => { if (!history.length) return; setPlayers(history[history.length - 1]); setHistory((h) => h.slice(0, -1)); };
+  // History entries hold players + log (older saved games stored just the players array)
+  const pushHistory = () => setHistory((h) => [...h, JSON.parse(JSON.stringify({ players, log }))]);
+  const handleUndo = () => {
+    if (!history.length) return;
+    const prev = history[history.length - 1];
+    if (Array.isArray(prev)) setPlayers(prev);
+    else { setPlayers(prev.players); setLog(prev.log || []); }
+    setHistory((h) => h.slice(0, -1));
+  };
   const addMid = (name) => { const t = name.trim(); if (!t || players.find((p) => p.name === t)) return; addToRecent(t); pushHistory(); setPlayers([...players, { id: uid(), name: t, score: 0 }]); };
   const removeMid = (id) => { pushHistory(); setPlayers(players.filter((p) => p.id !== id)); };
   const moveMid = (i, d) => { const n = [...players]; const s = i + d; if (s < 0 || s >= n.length) return; pushHistory(); [n[i], n[s]] = [n[s], n[i]]; setPlayers(n); };
+  const handleReset = () => { pushHistory(); setPlayers(players.map((p) => ({ ...p, score: 0 }))); setLog([]); setAddInputs({}); setShowMenu(false); };
   const getV = (id) => addInputs[id] || "";
   const setV = (id, v) => setAddInputs({ ...addInputs, [id]: v });
-  const applyAdd = (id) => { const v = parseInt(getV(id)); if (isNaN(v)) return; pushHistory(); setPlayers(players.map((p) => p.id === id ? { ...p, score: p.score + v } : p)); setAddInputs({ ...addInputs, [id]: "" }); };
+  const change = (pid, delta) => {
+    const p = players.find((pl) => pl.id === pid);
+    if (!p || !delta) return;
+    pushHistory();
+    const total = p.score + delta;
+    setPlayers(players.map((pl) => pl.id === pid ? { ...pl, score: total } : pl));
+    setLog([...log, { id: uid(), pid, name: p.name, delta, total, t: Date.now() }]);
+  };
+  const applyAdd = (id) => { const v = parseInt(getV(id)); if (isNaN(v)) return; change(id, v); setAddInputs({ ...addInputs, [id]: "" }); };
+  const fmtTime = (t) => new Date(t).toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" });
 
   return (
     <div style={{ paddingTop: `calc(${safeTop} + 8px)`, paddingLeft: 12, paddingRight: 12, paddingBottom: 20, minHeight: "100vh" }}>
@@ -372,7 +572,7 @@ function CounterGameScreen({ game, initialPlayers, recentNames, addToRecent, onE
           <button onClick={() => setShowMenu(!showMenu)} style={{ ...ctrlBtn, background: C.surface, color: C.text, border: `1px solid ${C.border}`, fontSize: 18, padding: "8px 14px" }}>⋮</button>
         </div>
       </div>
-      {showMenu && <GameMenu onAddPlayer={() => { setShowAddPlayer(true); setShowMenu(false); }} onExit={onExit} />}
+      {showMenu && <GameMenu onAddPlayer={() => { setShowAddPlayer(true); setShowMenu(false); }} onReset={handleReset} onExit={onExit} />}
       {showAddPlayer && <AddPlayerPopup players={players} recentNames={recentNames} onAdd={addMid} onClose={() => setShowAddPlayer(false)} />}
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {players.map((p, idx) => (
@@ -399,12 +599,30 @@ function CounterGameScreen({ game, initialPlayers, recentNames, addToRecent, onE
             </div>
             <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
               {[1, 5, 10, -1, -5, -10].map((val) => (
-                <button key={val} onClick={() => { pushHistory(); setPlayers(players.map((pl) => pl.id === p.id ? { ...pl, score: pl.score + val } : pl)); }}
+                <button key={val} onClick={() => change(p.id, val)}
                   style={{ ...pill, padding: "10px 0", fontSize: 14, fontWeight: 700, background: val > 0 ? C.green + "18" : C.red + "18", color: val > 0 ? C.green : C.red, border: `1px solid ${val > 0 ? C.green + "33" : C.red + "33"}`, borderRadius: 8, flex: 1, minWidth: 44, textAlign: "center" }}>{val > 0 ? "+" : ""}{val}</button>
               ))}
             </div>
           </div>
         ))}
+      </div>
+      <div style={{ marginTop: 20, padding: "12px 14px", background: C.surface, borderRadius: 12 }}>
+        <div onClick={() => setShowLog(!showLog)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", marginBottom: showLog ? 8 : 0 }}>
+          <span style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: 1 }}>Log ({log.length})</span>
+          <span style={{ fontSize: 12, color: C.textDim }}>{showLog ? "▲" : "▼"}</span>
+        </div>
+        {showLog && (log.length === 0
+          ? <div style={{ fontSize: 12, color: C.textDim }}>No changes yet</div>
+          : <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 260, overflowY: "auto" }}>
+            {[...log].reverse().map((e) => (
+              <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+                <span style={{ color: C.textDim, fontSize: 11, width: 38 }}>{fmtTime(e.t)}</span>
+                <span style={{ flex: 1, fontWeight: 600 }}>{e.name}</span>
+                <span style={{ fontWeight: 800, color: e.delta > 0 ? C.green : C.red }}>{e.delta > 0 ? "+" : ""}{e.delta}</span>
+                <span style={{ color: C.textDim, width: 56, textAlign: "right" }}>→ {e.total}</span>
+              </div>
+            ))}
+          </div>)}
       </div>
     </div>
   );
@@ -413,7 +631,7 @@ function CounterGameScreen({ game, initialPlayers, recentNames, addToRecent, onE
 // ═══════════════════════════════════════════
 // BOERENBRIDGE — muted colors, tricks total validation
 // ═══════════════════════════════════════════
-function BBGameScreen({ game, initialPlayers, settings, recentNames, addToRecent, onExit, savedState }) {
+function BBGameScreen({ game, initialPlayers, settings, updateSetting, recentNames, addToRecent, onExit, onFinish, savedState }) {
   const maxC = settings.bbMaxCards;
   const buildRounds = () => {
     const f = [];
@@ -422,8 +640,11 @@ function BBGameScreen({ game, initialPlayers, settings, recentNames, addToRecent
     for (let i = maxC - 1; i >= 1; i--) f.push({ cards: i, noTrump: false });
     return f;
   };
-  const init = savedState || { players: initialPlayers.map((p) => ({ ...p, totalScore: 0 })), currentRound: 0, phase: BB_PHASES.BIDDING, bids: {}, tricks: {}, roundHistory: [] };
-  const [rounds] = useState(buildRounds);
+  const init = savedState || { players: initialPlayers.map((p) => ({ ...p, totalScore: 0 })), currentRound: 0, phase: BB_PHASES.BIDDING, bids: {}, tricks: {}, roundHistory: [], extraCycles: 0 };
+  const [baseRounds] = useState(buildRounds);
+  const [extraCycles, setExtraCycles] = useState(init.extraCycles || 0);
+  // "Play another cycle" appends the full round sequence again, so a game can be extended
+  const rounds = useMemo(() => Array.from({ length: 1 + extraCycles }).flatMap(() => baseRounds), [baseRounds, extraCycles]);
   const [currentRound, setCurrentRound] = useState(init.currentRound);
   const [phase, setPhase] = useState(init.phase);
   const [players, setPlayers] = useState(init.players);
@@ -432,8 +653,9 @@ function BBGameScreen({ game, initialPlayers, settings, recentNames, addToRecent
   const [roundHistory, setRoundHistory] = useState(init.roundHistory || []);
   const [showMenu, setShowMenu] = useState(false);
   const [showAddPlayer, setShowAddPlayer] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
-  useAutoSave("activeGame", { gameId: "boerenbridge", players, currentRound, phase, bids, tricks, roundHistory });
+  useAutoSave("activeGame", { gameId: "boerenbridge", players, currentRound, phase, bids, tricks, roundHistory, extraCycles });
 
   const round = rounds[currentRound];
   const isLastRound = currentRound >= rounds.length - 1;
@@ -476,6 +698,11 @@ function BBGameScreen({ game, initialPlayers, settings, recentNames, addToRecent
   const removeMid = (id) => setPlayers(players.filter((p) => p.id !== id));
   const moveMid = (i, d) => { const n = [...players]; const s = i + d; if (s < 0 || s >= n.length) return; [n[i], n[s]] = [n[s], n[i]]; setPlayers(n); };
   const sorted = [...players].sort((a, b) => b.totalScore - a.totalScore);
+  const handleReset = () => {
+    setPlayers(players.map((p) => ({ ...p, totalScore: 0 })));
+    setCurrentRound(0); setPhase(BB_PHASES.BIDDING); setBids({}); setTricks({}); setRoundHistory([]); setExtraCycles(0); setShowMenu(false);
+  };
+  const saveAndHome = () => { const top = sorted[0]?.totalScore; onFinish("boerenbridge", players.map((p) => ({ name: p.name, score: p.totalScore, won: p.totalScore === top }))); };
 
   // Muted BB accent — use text color instead of purple for most elements
   const bbAccent = C.text;
@@ -497,7 +724,11 @@ function BBGameScreen({ game, initialPlayers, settings, recentNames, addToRecent
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <button onClick={undoLastRound} style={{ ...ctrlBtn, flex: 1, padding: "12px 0", background: C.surface, color: C.text, border: `1px solid ${C.border}` }}>↩ Undo last round</button>
-          <button onClick={onExit} style={{ ...ctrlBtn, flex: 1, padding: "12px 0", background: C.accent, color: C.bg }}>Home</button>
+          <button onClick={() => setExtraCycles(extraCycles + 1)} style={{ ...ctrlBtn, flex: 1, padding: "12px 0", background: C.surface, color: C.text, border: `1px solid ${C.border}` }}>Play another cycle</button>
+        </div>
+        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+          <button onClick={saveAndHome} style={{ ...ctrlBtn, flex: 2, padding: "12px 0", background: C.accent, color: C.bg, fontWeight: 800 }}>Save result & Home</button>
+          <button onClick={onExit} style={{ ...ctrlBtn, flex: 1, padding: "12px 0", background: C.surface, color: C.textDim, border: `1px solid ${C.border}` }}>Discard</button>
         </div>
         {roundHistory.length > 0 && <div style={{ marginTop: 24, overflowX: "auto" }}>
           <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Score History</div>
@@ -541,8 +772,9 @@ function BBGameScreen({ game, initialPlayers, settings, recentNames, addToRecent
           ⚠ Total tricks ({totalTricks}) must equal {round.cards} cards. Currently off by {Math.abs(totalTricks - round.cards)}.
         </div>
       )}
-      {showMenu && <GameMenu onAddPlayer={() => { setShowAddPlayer(true); setShowMenu(false); }} onExit={onExit} />}
+      {showMenu && <GameMenu onAddPlayer={() => { setShowAddPlayer(true); setShowMenu(false); }} onSettings={() => { setShowSettings(!showSettings); setShowMenu(false); }} onReset={handleReset} onExit={onExit} />}
       {showAddPlayer && <AddPlayerPopup players={players} recentNames={recentNames} onAdd={addMid} onClose={() => setShowAddPlayer(false)} />}
+      {showSettings && <InGameSettings gameId="boerenbridge" settings={settings} updateSetting={updateSetting} onClose={() => setShowSettings(false)} />}
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {players.map((p, idx) => {
           const bid = getBid(p.id); const trick = getTricks(p.id);
@@ -597,13 +829,15 @@ function BBGameScreen({ game, initialPlayers, settings, recentNames, addToRecent
 // ═══════════════════════════════════════════
 // YAHTZEE — numeric keyboard on inputs
 // ═══════════════════════════════════════════
-function YahtzeeGameScreen({ game, initialPlayers, settings, recentNames, addToRecent, onExit, savedState }) {
+function YahtzeeGameScreen({ game, initialPlayers, settings, updateSetting, recentNames, addToRecent, onExit, onFinish, savedState }) {
   const initScores = () => { const s = {}; YZ_ALL.forEach((c) => s[c.key] = null); s.yahtzeeBonus = 0; return s; };
   const init = savedState || { players: initialPlayers.map((p) => ({ ...p, scores: initScores() })), finished: false };
   const [players, setPlayers] = useState(init.players);
   const [editingCell, setEditingCell] = useState(null);
   const [editValue, setEditValue] = useState("");
   const [finished, setFinished] = useState(init.finished || false);
+  const [showMenu, setShowMenu] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   useAutoSave("activeGame", { gameId: "yahtzee", players, finished });
 
@@ -621,6 +855,8 @@ function YahtzeeGameScreen({ game, initialPlayers, settings, recentNames, addToR
   const startEdit = (pid, key) => { const p = players.find((pl) => pl.id === pid); setEditingCell({ playerId: pid, key }); setEditValue(p.scores[key] !== null ? String(p.scores[key]) : ""); };
   const confirmEdit = () => { if (!editingCell) return; const val = editValue.trim() === "" ? null : parseInt(editValue); if (editValue.trim() !== "" && isNaN(val)) return; setScore(editingCell.playerId, editingCell.key, val); };
   const sorted = [...players].sort((a, b) => calcGrandTotal(b.scores) - calcGrandTotal(a.scores));
+  const handleReset = () => { setPlayers(players.map((p) => ({ ...p, scores: initScores() }))); setEditingCell(null); setEditValue(""); setFinished(false); setShowMenu(false); };
+  const saveAndHome = () => { const top = sorted[0] ? calcGrandTotal(sorted[0].scores) : 0; onFinish("yahtzee", players.map((p) => ({ name: p.name, score: calcGrandTotal(p.scores), won: calcGrandTotal(p.scores) === top }))); };
 
   if (finished) {
     return (
@@ -638,8 +874,9 @@ function YahtzeeGameScreen({ game, initialPlayers, settings, recentNames, addToR
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <button onClick={() => setFinished(false)} style={{ ...ctrlBtn, flex: 1, padding: "12px 0", background: C.surface, color: C.text, border: `1px solid ${C.border}` }}>← Back to scorecard</button>
-          <button onClick={onExit} style={{ ...ctrlBtn, flex: 1, padding: "12px 0", background: C.accent, color: C.bg }}>Home</button>
+          <button onClick={saveAndHome} style={{ ...ctrlBtn, flex: 1, padding: "12px 0", background: C.accent, color: C.bg, fontWeight: 800 }}>Save result & Home</button>
         </div>
+        <button onClick={onExit} style={{ ...ctrlBtn, width: "100%", marginTop: 8, background: C.surface, color: C.textDim, border: `1px solid ${C.border}` }}>Discard & Home</button>
       </div>
     );
   }
@@ -661,9 +898,11 @@ function YahtzeeGameScreen({ game, initialPlayers, settings, recentNames, addToR
         <h2 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>{game.emoji} Yahtzee</h2>
         <div style={{ display: "flex", gap: 6 }}>
           <button onClick={() => setFinished(true)} style={{ ...ctrlBtn, background: `linear-gradient(135deg, ${C.orange}, #c87830)`, color: "#fff" }}>Finish</button>
-          <button onClick={onExit} style={{ ...ctrlBtn, background: C.surface, color: C.textDim, border: `1px solid ${C.border}` }}>Exit</button>
+          <button onClick={() => setShowMenu(!showMenu)} style={{ ...ctrlBtn, background: C.surface, color: C.text, border: `1px solid ${C.border}`, fontSize: 18, padding: "8px 14px" }}>⋮</button>
         </div>
       </div>
+      {showMenu && <GameMenu onSettings={() => { setShowSettings(!showSettings); setShowMenu(false); }} onReset={handleReset} onExit={onExit} />}
+      {showSettings && <InGameSettings gameId="yahtzee" settings={settings} updateSetting={updateSetting} onClose={() => setShowSettings(false)} />}
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
           <thead><tr>
