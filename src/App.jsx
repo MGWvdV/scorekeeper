@@ -51,13 +51,13 @@ const YZ_UPPER = [
   { key: "sixes", label: "Sixes", desc: "Total of sixes" },
 ];
 const YZ_LOWER = [
-  { key: "threeOfKind", label: "3 of a Kind", desc: "Sum all dice" },
-  { key: "fourOfKind", label: "4 of a Kind", desc: "Sum all dice" },
-  { key: "fullHouse", label: "Full House", desc: "25 pts" },
-  { key: "smStraight", label: "Sm. Straight", desc: "30 pts" },
-  { key: "lgStraight", label: "Lg. Straight", desc: "40 pts" },
-  { key: "yahtzee", label: "Yahtzee", desc: "50 pts" },
-  { key: "chance", label: "Chance", desc: "Sum all dice" },
+  { key: "threeOfKind", label: "3 of a Kind", short: "3 Kind", desc: "Sum all dice" },
+  { key: "fourOfKind", label: "4 of a Kind", short: "4 Kind", desc: "Sum all dice" },
+  { key: "fullHouse", label: "Full House", short: "Full H.", desc: "25 pts", fixed: 25 },
+  { key: "smStraight", label: "Small Straight", short: "Sm. Str.", desc: "30 pts", fixed: 30 },
+  { key: "lgStraight", label: "Large Straight", short: "Lg. Str.", desc: "40 pts", fixed: 40 },
+  { key: "yahtzee", label: "Yahtzee", short: "Yahtzee", desc: "50 pts", fixed: 50 },
+  { key: "chance", label: "Chance", short: "Chance", desc: "Sum all dice" },
 ];
 const YZ_ALL = [...YZ_UPPER, ...YZ_LOWER];
 
@@ -561,6 +561,13 @@ function CounterGameScreen({ game, initialPlayers, settings, updateSetting, rece
     setLog([...log, { id: uid(), pid, name: p.name, delta, total, t: Date.now() }]);
   };
   const applyAdd = (id) => { const v = parseInt(getV(id)); if (isNaN(v)) return; change(id, v); setAddInputs({ ...addInputs, [id]: "" }); };
+  // Group consecutive changes to the same player within 10s into one "turn" (sum shown, parts in brackets)
+  const turns = [];
+  log.forEach((e) => {
+    const g = turns[turns.length - 1];
+    if (g && g.pid === e.pid && e.t - g.lastT <= 10000) { g.parts.push(e.delta); g.sum += e.delta; g.total = e.total; g.lastT = e.t; }
+    else turns.push({ id: e.id, pid: e.pid, name: e.name, parts: [e.delta], sum: e.delta, total: e.total, t: e.t, lastT: e.t });
+  });
   const fmtTime = (t) => new Date(t).toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" });
 
   return (
@@ -608,17 +615,20 @@ function CounterGameScreen({ game, initialPlayers, settings, updateSetting, rece
       </div>
       <div style={{ marginTop: 20, padding: "12px 14px", background: C.surface, borderRadius: 12 }}>
         <div onClick={() => setShowLog(!showLog)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", marginBottom: showLog ? 8 : 0 }}>
-          <span style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: 1 }}>Log ({log.length})</span>
+          <span style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: 1 }}>Log ({turns.length})</span>
           <span style={{ fontSize: 12, color: C.textDim }}>{showLog ? "▲" : "▼"}</span>
         </div>
         {showLog && (log.length === 0
           ? <div style={{ fontSize: 12, color: C.textDim }}>No changes yet</div>
           : <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 260, overflowY: "auto" }}>
-            {[...log].reverse().map((e) => (
+            {[...turns].reverse().map((e) => (
               <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
                 <span style={{ color: C.textDim, fontSize: 11, width: 38 }}>{fmtTime(e.t)}</span>
-                <span style={{ flex: 1, fontWeight: 600 }}>{e.name}</span>
-                <span style={{ fontWeight: 800, color: e.delta > 0 ? C.green : C.red }}>{e.delta > 0 ? "+" : ""}{e.delta}</span>
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ fontWeight: 600 }}>{e.name}</span>
+                  {e.parts.length > 1 && <span style={{ color: C.textDim, fontSize: 11, marginLeft: 6 }}>({e.parts.map((d) => (d > 0 ? "+" : "") + d).join(" ")})</span>}
+                </span>
+                <span style={{ fontWeight: 800, color: e.sum > 0 ? C.green : e.sum < 0 ? C.red : C.textDim }}>{e.sum > 0 ? "+" : ""}{e.sum}</span>
                 <span style={{ color: C.textDim, width: 56, textAlign: "right" }}>→ {e.total}</span>
               </div>
             ))}
@@ -854,6 +864,7 @@ function YahtzeeGameScreen({ game, initialPlayers, settings, updateSetting, rece
   const calcGrandTotal = (scores) => calcUpperTotal(scores) + calcUpperBonus(scores) + calcLowerTotal(scores) + (scores.yahtzeeBonus || 0);
   const startEdit = (pid, key) => { const p = players.find((pl) => pl.id === pid); setEditingCell({ playerId: pid, key }); setEditValue(p.scores[key] !== null ? String(p.scores[key]) : ""); };
   const confirmEdit = () => { if (!editingCell) return; const val = editValue.trim() === "" ? null : parseInt(editValue); if (editValue.trim() !== "" && isNaN(val)) return; setScore(editingCell.playerId, editingCell.key, val); };
+  const closeEdit = () => { setEditingCell(null); setEditValue(""); };
   const sorted = [...players].sort((a, b) => calcGrandTotal(b.scores) - calcGrandTotal(a.scores));
   const handleReset = () => { setPlayers(players.map((p) => ({ ...p, scores: initScores() }))); setEditingCell(null); setEditValue(""); setFinished(false); setShowMenu(false); };
   const saveAndHome = () => { const top = sorted[0] ? calcGrandTotal(sorted[0].scores) : 0; onFinish("yahtzee", players.map((p) => ({ name: p.name, score: calcGrandTotal(p.scores), won: calcGrandTotal(p.scores) === top }))); };
@@ -882,15 +893,41 @@ function YahtzeeGameScreen({ game, initialPlayers, settings, updateSetting, rece
   }
 
   const renderScoreCell = (p, catKey) => {
-    if (editingCell?.playerId === p.id && editingCell?.key === catKey) {
-      return <input value={editValue} inputMode="numeric" pattern="[0-9]*"
-        onChange={(e) => { if (/^\d*$/.test(e.target.value)) setEditValue(e.target.value); }}
-        onKeyDown={(e) => { if (e.key === "Enter") confirmEdit(); if (e.key === "Escape") setEditingCell(null); }}
-        onBlur={confirmEdit} autoFocus
-        style={{ width: 44, padding: "4px", borderRadius: 6, border: `2px solid ${C.accent}`, background: C.surface, color: C.text, fontSize: 14, fontWeight: 700, textAlign: "center", fontFamily: "inherit", outline: "none" }} />;
-    }
-    return <button onClick={() => startEdit(p.id, catKey)} style={{ ...pill, padding: "6px 4px", width: "100%", fontSize: 14, fontWeight: 700, background: p.scores[catKey] !== null ? C.card : C.surface, color: p.scores[catKey] !== null ? C.text : C.textDim + "66", border: `1px solid ${C.border}`, borderRadius: 6, minWidth: 44 }}>{p.scores[catKey] !== null ? p.scores[catKey] : "—"}</button>;
+    const v = p.scores[catKey];
+    const struck = v === 0;
+    return <button onClick={() => startEdit(p.id, catKey)} style={{ ...pill, padding: "6px 2px", width: "100%", fontSize: 14, fontWeight: 700, background: v !== null ? C.card : C.surface, color: v === null ? C.textDim + "66" : struck ? C.red : C.text, border: `1px solid ${C.border}`, borderRadius: 6, minWidth: 0 }}>{v === null ? "—" : struck ? "✗" : v}</button>;
   };
+
+  // Bottom sheet for entering a score: fixed-score categories get one tap for the standard points, every category can be struck (0)
+  const editPlayer = editingCell ? players.find((pl) => pl.id === editingCell.playerId) : null;
+  const editCat = editingCell ? YZ_ALL.find((c) => c.key === editingCell.key) : null;
+  const sheetBtn = { ...pill, padding: "14px 0", fontSize: 15, fontWeight: 800, borderRadius: 12, flex: 1, textAlign: "center" };
+  const scoreSheet = editingCell && editPlayer && editCat && (
+    <div onClick={closeEdit} style={{ position: "fixed", inset: 0, background: "#000a", zIndex: 50, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 480, background: C.card, borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: "16px 16px calc(16px + env(safe-area-inset-bottom, 0px))", border: `1px solid ${C.border}` }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <div><div style={{ fontSize: 16, fontWeight: 800 }}>{editPlayer.name}</div><div style={{ fontSize: 12, color: C.textDim }}>{editCat.label}{editCat.fixed ? ` — ${editCat.fixed} pts` : " — " + editCat.desc.toLowerCase()}</div></div>
+          <button onClick={closeEdit} style={{ ...pill, background: C.surface, color: C.textDim }}>✕</button>
+        </div>
+        {editCat.fixed ? (
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => setScore(editPlayer.id, editCat.key, editCat.fixed)} style={{ ...sheetBtn, background: C.green, color: C.bg }}>✓ {editCat.fixed} pts</button>
+            <button onClick={() => setScore(editPlayer.id, editCat.key, 0)} style={{ ...sheetBtn, background: C.red + "22", color: C.red, border: `1px solid ${C.red}55` }}>✗ Strike</button>
+          </div>
+        ) : (<>
+          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+            <input value={editValue} inputMode="numeric" pattern="[0-9]*" autoFocus placeholder="Points"
+              onChange={(e) => { if (/^\d*$/.test(e.target.value)) setEditValue(e.target.value); }}
+              onKeyDown={(e) => { if (e.key === "Enter") confirmEdit(); if (e.key === "Escape") closeEdit(); }}
+              style={{ flex: 1, minWidth: 0, padding: "12px 14px", borderRadius: 12, border: `2px solid ${C.accent}`, background: C.surface, color: C.text, fontSize: 20, fontWeight: 800, textAlign: "center", fontFamily: "inherit", outline: "none" }} />
+            <button onClick={confirmEdit} style={{ ...sheetBtn, flex: "0 0 90px", background: C.green, color: C.bg }}>OK</button>
+          </div>
+          <button onClick={() => setScore(editPlayer.id, editCat.key, 0)} style={{ ...sheetBtn, width: "100%", background: C.red + "22", color: C.red, border: `1px solid ${C.red}55` }}>✗ Strike (0)</button>
+        </>)}
+        {editPlayer.scores[editCat.key] !== null && <button onClick={() => setScore(editPlayer.id, editCat.key, null)} style={{ ...pill, width: "100%", marginTop: 8, padding: "10px 0", background: "transparent", color: C.textDim, textAlign: "center" }}>Clear this cell</button>}
+      </div>
+    </div>
+  );
 
   return (
     <div style={{ paddingTop: `calc(${safeTop} + 8px)`, paddingLeft: 8, paddingRight: 8, paddingBottom: 20, minHeight: "100vh" }}>
@@ -906,38 +943,37 @@ function YahtzeeGameScreen({ game, initialPlayers, settings, updateSetting, rece
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
           <thead><tr>
-            <th style={{ padding: "6px 8px", textAlign: "left", color: C.textDim, borderBottom: `2px solid ${C.border}`, position: "sticky", left: 0, background: C.bg, minWidth: 90 }}>Category</th>
-            {players.map((p) => <th key={p.id} style={{ padding: "6px 8px", textAlign: "center", color: C.text, borderBottom: `2px solid ${C.border}`, minWidth: 60 }}>{p.name.slice(0, 6)}</th>)}
+            <th style={{ padding: "6px 4px", textAlign: "left", color: C.textDim, borderBottom: `2px solid ${C.border}`, position: "sticky", left: 0, background: C.bg, width: "1%", whiteSpace: "nowrap" }}></th>
+            {players.map((p) => <th key={p.id} style={{ padding: "6px 4px", textAlign: "center", color: C.text, borderBottom: `2px solid ${C.border}`, minWidth: 48 }}>{p.name.slice(0, 6)}</th>)}
           </tr></thead>
           <tbody>
             <tr><td colSpan={players.length + 1} style={{ padding: "8px 8px 4px", fontSize: 10, fontWeight: 700, color: C.textDim, textTransform: "uppercase", letterSpacing: 1 }}>Upper Section</td></tr>
             {YZ_UPPER.map((cat) => (
               <tr key={cat.key}>
-                <td style={{ padding: "6px 8px", color: C.textDim, borderBottom: `1px solid ${C.border}22`, position: "sticky", left: 0, background: C.bg }}><div style={{ fontWeight: 600, color: C.text }}>{cat.label}</div></td>
+                <td style={{ padding: "6px 4px", color: C.textDim, borderBottom: `1px solid ${C.border}22`, position: "sticky", left: 0, background: C.bg, whiteSpace: "nowrap" }}><div style={{ fontWeight: 600, color: C.text, fontSize: 11 }}>{cat.short || cat.label}</div></td>
                 {players.map((p) => <td key={p.id} style={{ padding: "4px 4px", textAlign: "center", borderBottom: `1px solid ${C.border}22` }}>{renderScoreCell(p, cat.key)}</td>)}
               </tr>
             ))}
             <tr style={{ background: C.surface }}>
-              <td style={{ padding: "6px 8px", fontWeight: 700, color: C.textDim, position: "sticky", left: 0, background: C.surface }}>Upper Total</td>
+              <td style={{ padding: "6px 4px", fontWeight: 700, fontSize: 11, color: C.textDim, position: "sticky", left: 0, background: C.surface, whiteSpace: "nowrap" }}>Upper</td>
               {players.map((p) => <td key={p.id} style={{ padding: "6px 4px", textAlign: "center", fontWeight: 800, color: C.text }}>{calcUpperTotal(p.scores)}</td>)}
             </tr>
             <tr style={{ background: C.surface }}>
-              <td style={{ padding: "4px 8px", fontSize: 11, color: C.textDim, position: "sticky", left: 0, background: C.surface }}>Bonus (≥63)</td>
+              <td style={{ padding: "4px 4px", fontSize: 11, color: C.textDim, position: "sticky", left: 0, background: C.surface, whiteSpace: "nowrap" }}>Bonus</td>
               {players.map((p) => <td key={p.id} style={{ padding: "4px 4px", textAlign: "center", fontWeight: 700, fontSize: 11, color: calcUpperBonus(p.scores) > 0 ? C.green : C.textDim }}>{calcUpperBonus(p.scores) > 0 ? "+35" : `${calcUpperTotal(p.scores)}/63`}</td>)}
             </tr>
             <tr><td colSpan={players.length + 1} style={{ padding: "8px 8px 4px", fontSize: 10, fontWeight: 700, color: C.textDim, textTransform: "uppercase", letterSpacing: 1 }}>Lower Section</td></tr>
             {YZ_LOWER.map((cat) => (
               <tr key={cat.key}>
-                <td style={{ padding: "6px 8px", color: C.textDim, borderBottom: `1px solid ${C.border}22`, position: "sticky", left: 0, background: C.bg }}>
-                  <div style={{ fontWeight: 600, color: C.text, fontSize: 11 }}>{cat.label}</div>
-                  <div style={{ fontSize: 9, color: C.textDim, marginTop: 1 }}>{cat.desc}</div>
+                <td style={{ padding: "6px 4px", color: C.textDim, borderBottom: `1px solid ${C.border}22`, position: "sticky", left: 0, background: C.bg, whiteSpace: "nowrap" }}>
+                  <div style={{ fontWeight: 600, color: C.text, fontSize: 11 }}>{cat.short}</div>
                 </td>
                 {players.map((p) => <td key={p.id} style={{ padding: "4px 4px", textAlign: "center", borderBottom: `1px solid ${C.border}22` }}>{renderScoreCell(p, cat.key)}</td>)}
               </tr>
             ))}
             {settings.yzMultiple && (
               <tr>
-                <td style={{ padding: "6px 8px", fontWeight: 600, color: C.text, fontSize: 11, position: "sticky", left: 0, background: C.bg }}>Yahtzee Bonus</td>
+                <td style={{ padding: "6px 4px", fontWeight: 600, color: C.text, fontSize: 11, position: "sticky", left: 0, background: C.bg, whiteSpace: "nowrap" }}>Yz bonus</td>
                 {players.map((p) => (
                   <td key={p.id} style={{ padding: "4px 4px", textAlign: "center" }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
@@ -949,12 +985,13 @@ function YahtzeeGameScreen({ game, initialPlayers, settings, updateSetting, rece
               </tr>
             )}
             <tr style={{ background: C.card }}>
-              <td style={{ padding: "10px 8px", fontWeight: 800, fontSize: 14, color: C.accent, position: "sticky", left: 0, background: C.card }}>Grand Total</td>
+              <td style={{ padding: "10px 4px", fontWeight: 800, fontSize: 13, color: C.accent, position: "sticky", left: 0, background: C.card, whiteSpace: "nowrap" }}>Total</td>
               {players.map((p) => <td key={p.id} style={{ padding: "10px 4px", textAlign: "center", fontWeight: 900, fontSize: 18, color: C.accent }}>{calcGrandTotal(p.scores)}</td>)}
             </tr>
           </tbody>
         </table>
       </div>
+      {scoreSheet}
     </div>
   );
 }
