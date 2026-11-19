@@ -36,6 +36,7 @@ const GAME_INFO = {
   toepen: { id: "toepen", name: "Toepen", emoji: "🃏", color: C.accent },
   boerenbridge: { id: "boerenbridge", name: "Boerenbridge", emoji: "🂡", color: C.purple },
   yahtzee: { id: "yahtzee", name: "Yahtzee", emoji: "🎲", color: C.orange },
+  qwixx: { id: "qwixx", name: "Qwixx", emoji: "🟥", color: C.green },
   counter: { id: "counter", name: "Counter", emoji: "🔢", color: C.blue },
 };
 
@@ -116,6 +117,7 @@ export default function App() {
       {screen === "game" && selectedGame.id === "toepen" && <ToepGameScreen game={selectedGame} initialPlayers={players} settings={gameSettings} updateSetting={updateSetting} recentNames={recentNames} addToRecent={addToRecent} onExit={backToHome} onFinish={finishGame} savedState={resumeData?.gameId === "toepen" ? resumeData : null} />}
       {screen === "game" && selectedGame.id === "counter" && <CounterGameScreen game={selectedGame} initialPlayers={players} settings={gameSettings} updateSetting={updateSetting} recentNames={recentNames} addToRecent={addToRecent} onExit={backToHome} savedState={resumeData?.gameId === "counter" ? resumeData : null} />}
       {screen === "game" && selectedGame.id === "boerenbridge" && <BBGameScreen game={selectedGame} initialPlayers={players} settings={gameSettings} updateSetting={updateSetting} recentNames={recentNames} addToRecent={addToRecent} onExit={backToHome} onFinish={finishGame} savedState={resumeData?.gameId === "boerenbridge" ? resumeData : null} />}
+      {screen === "game" && selectedGame.id === "qwixx" && <QwixxGameScreen game={selectedGame} initialPlayers={players} recentNames={recentNames} addToRecent={addToRecent} onExit={backToHome} onFinish={finishGame} savedState={resumeData?.gameId === "qwixx" ? resumeData : null} />}
       {screen === "game" && selectedGame.id === "yahtzee" && <YahtzeeGameScreen game={selectedGame} initialPlayers={players} settings={gameSettings} updateSetting={updateSetting} recentNames={recentNames} addToRecent={addToRecent} onExit={backToHome} onFinish={finishGame} savedState={resumeData?.gameId === "yahtzee" ? resumeData : null} />}
     </div>
   );
@@ -125,7 +127,7 @@ export default function App() {
 // HOME SCREEN
 // ═══════════════════════════════════════════
 function HomeScreen({ onSelect, onStats, resumeData, onResume, onDismissResume }) {
-  const games = [GAME_INFO.toepen, GAME_INFO.boerenbridge, GAME_INFO.yahtzee, GAME_INFO.counter];
+  const games = [GAME_INFO.toepen, GAME_INFO.boerenbridge, GAME_INFO.yahtzee, GAME_INFO.qwixx, GAME_INFO.counter];
   const resumeGameInfo = resumeData ? games.find((g) => g.id === resumeData.gameId) : null;
 
   return (
@@ -299,7 +301,7 @@ function InGameSettings({ gameId, settings, updateSetting, onClose }) {
 function StatsScreen({ gameLog, onBack, onClear }) {
   const [filter, setFilter] = useState("all");
   const [confirmClear, setConfirmClear] = useState(false);
-  const filters = [["all", "All"], ["toepen", "Toepen"], ["boerenbridge", "Boerenbridge"], ["yahtzee", "Yahtzee"]];
+  const filters = [["all", "All"], ["toepen", "Toepen"], ["boerenbridge", "Boerenbridge"], ["yahtzee", "Yahtzee"], ["qwixx", "Qwixx"]];
   const entries = gameLog.filter((e) => filter === "all" || e.game === filter);
 
   const byPlayer = {};
@@ -992,6 +994,131 @@ function YahtzeeGameScreen({ game, initialPlayers, settings, updateSetting, rece
         </table>
       </div>
       {scoreSheet}
+    </div>
+  );
+}
+
+
+// ═══════════════════════════════════════════
+// QWIXX — count marks per colour row, lock bonus, penalties
+// ═══════════════════════════════════════════
+const QX_ROWS = [
+  { key: "red", label: "Red", color: "#e05252" },
+  { key: "yellow", label: "Yellow", color: "#f2d04b" },
+  { key: "green", label: "Green", color: "#4ecb71" },
+  { key: "blue", label: "Blue", color: "#5b8def" },
+];
+const QX_MAX_MARKS = 11;   // numbers per row (the lock adds one extra mark on top)
+const QX_MIN_TO_LOCK = 5;  // you need at least 5 marks in a row before you may lock it
+const QX_PENALTY = 5;
+const QX_MAX_PENALTIES = 4;
+
+const qxFresh = () => ({ rows: { red: { n: 0, lock: false }, yellow: { n: 0, lock: false }, green: { n: 0, lock: false }, blue: { n: 0, lock: false } }, pen: 0 });
+// Row score: m marks (lock counts as one extra) = 1+2+...+m
+const qxRowPoints = (r) => { const m = r.n + (r.lock ? 1 : 0); return (m * (m + 1)) / 2; };
+const qxTotal = (p) => QX_ROWS.reduce((s, row) => s + qxRowPoints(p.rows[row.key]), 0) - p.pen * QX_PENALTY;
+
+function QwixxGameScreen({ game, initialPlayers, recentNames, addToRecent, onExit, onFinish, savedState }) {
+  const init = savedState || { players: initialPlayers.map((p) => ({ ...p, ...qxFresh() })), finished: false };
+  const [players, setPlayers] = useState(init.players);
+  const [finished, setFinished] = useState(init.finished || false);
+  const [showMenu, setShowMenu] = useState(false);
+
+  useAutoSave("activeGame", { gameId: "qwixx", players, finished });
+
+  const update = (pid, fn) => setPlayers((ps) => ps.map((p) => p.id === pid ? fn(p) : p));
+  const setMarks = (pid, key, delta) => update(pid, (p) => {
+    const r = p.rows[key];
+    const n = Math.max(0, Math.min(QX_MAX_MARKS, r.n + delta));
+    // a row can only stay locked while it has enough marks
+    return { ...p, rows: { ...p.rows, [key]: { n, lock: r.lock && n >= QX_MIN_TO_LOCK } } };
+  });
+  const toggleLock = (pid, key) => update(pid, (p) => {
+    const r = p.rows[key];
+    if (!r.lock && r.n < QX_MIN_TO_LOCK) return p;
+    return { ...p, rows: { ...p.rows, [key]: { ...r, lock: !r.lock } } };
+  });
+  const setPenalty = (pid, i) => update(pid, (p) => ({ ...p, pen: p.pen === i + 1 ? i : i + 1 }));
+  const handleReset = () => { setPlayers(players.map((p) => ({ ...p, ...qxFresh() }))); setFinished(false); setShowMenu(false); };
+
+  const sorted = [...players].sort((a, b) => qxTotal(b) - qxTotal(a));
+  const saveAndHome = () => { const top = sorted[0] ? qxTotal(sorted[0]) : 0; onFinish("qwixx", players.map((p) => ({ name: p.name, score: qxTotal(p), won: qxTotal(p) === top }))); };
+
+  if (finished) {
+    return (
+      <div style={{ paddingTop: `calc(${safeTop} + 20px)`, paddingLeft: 20, paddingRight: 20, paddingBottom: 40, minHeight: "100vh" }}>
+        <h2 style={{ fontSize: 24, fontWeight: 900, marginBottom: 4, color: game.color }}>{game.emoji} Final Scores!</h2>
+        <p style={{ color: C.textDim, fontSize: 13, marginBottom: 24 }}>Qwixx game complete</p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 32 }}>
+          {sorted.map((p, i) => (
+            <div key={p.id} style={{ background: i === 0 ? game.color + "22" : C.card, border: `1px solid ${i === 0 ? game.color + "55" : C.border}`, borderRadius: 12, padding: "14px 16px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <span style={{ fontSize: 20, fontWeight: 900, color: i === 0 ? game.color : C.textDim, width: 30 }}>#{i + 1}</span>
+                <span style={{ flex: 1, fontSize: 16, fontWeight: 700 }}>{p.name}</span>
+                <span style={{ fontSize: 24, fontWeight: 900, color: game.color }}>{qxTotal(p)}</span>
+              </div>
+              <div style={{ display: "flex", gap: 10, marginTop: 6, marginLeft: 42, fontSize: 12 }}>
+                {QX_ROWS.map((row) => <span key={row.key} style={{ color: row.color, fontWeight: 700 }}>{qxRowPoints(p.rows[row.key])}</span>)}
+                {p.pen > 0 && <span style={{ color: C.textDim }}>−{p.pen * QX_PENALTY}</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => setFinished(false)} style={{ ...ctrlBtn, flex: 1, padding: "12px 0", background: C.surface, color: C.text, border: `1px solid ${C.border}` }}>← Back to scorecard</button>
+          <button onClick={saveAndHome} style={{ ...ctrlBtn, flex: 1, padding: "12px 0", background: C.accent, color: C.bg, fontWeight: 800 }}>Save result & Home</button>
+        </div>
+        <button onClick={onExit} style={{ ...ctrlBtn, width: "100%", marginTop: 8, background: C.surface, color: C.textDim, border: `1px solid ${C.border}` }}>Discard & Home</button>
+      </div>
+    );
+  }
+
+  const stepBtn = { ...pill, width: 40, height: 40, padding: 0, fontSize: 22, fontWeight: 800, borderRadius: 10, textAlign: "center", lineHeight: 1 };
+
+  return (
+    <div style={{ paddingTop: `calc(${safeTop} + 8px)`, paddingLeft: 12, paddingRight: 12, paddingBottom: 24, minHeight: "100vh" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+        <h2 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>{game.emoji} Qwixx</h2>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button onClick={() => setFinished(true)} style={{ ...ctrlBtn, background: `linear-gradient(135deg, ${game.color}, ${C.blue})`, color: "#fff" }}>Finish</button>
+          <button onClick={() => setShowMenu(!showMenu)} style={{ ...ctrlBtn, background: C.surface, color: C.text, border: `1px solid ${C.border}`, fontSize: 18, padding: "8px 14px" }}>⋮</button>
+        </div>
+      </div>
+      {showMenu && <GameMenu onReset={handleReset} onExit={onExit} />}
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {players.map((p) => (
+          <div key={p.id} style={{ background: C.card, borderRadius: 14, padding: "14px 14px 12px", border: `1px solid ${C.border}` }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <span style={{ fontSize: 16, fontWeight: 800 }}>{p.name}</span>
+              <span style={{ fontSize: 30, fontWeight: 900, color: qxTotal(p) < 0 ? C.red : C.text }}>{qxTotal(p)}</span>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {QX_ROWS.map((row) => {
+                const r = p.rows[row.key];
+                const canLock = r.lock || r.n >= QX_MIN_TO_LOCK;
+                return (
+                  <div key={row.key} style={{ display: "flex", alignItems: "center", gap: 8, background: row.color + "1f", border: `1px solid ${row.color}55`, borderRadius: 12, padding: "6px 8px" }}>
+                    <button onClick={() => setMarks(p.id, row.key, -1)} style={{ ...stepBtn, background: C.surface, color: C.textDim }}>−</button>
+                    <div style={{ width: 34, textAlign: "center", fontSize: 22, fontWeight: 900, color: row.color }}>{r.n}</div>
+                    <button onClick={() => setMarks(p.id, row.key, 1)} style={{ ...stepBtn, background: row.color, color: C.bg }}>+</button>
+                    <button onClick={() => toggleLock(p.id, row.key)} style={{ ...pill, marginLeft: 4, padding: "8px 10px", fontSize: 16, borderRadius: 10, background: r.lock ? row.color : C.surface, color: r.lock ? C.bg : C.textDim, opacity: canLock ? 1 : 0.3, border: `1px solid ${r.lock ? row.color : C.border}` }}>🔒</button>
+                    <div style={{ flex: 1, textAlign: "right", fontSize: 20, fontWeight: 800, color: C.text }}>{qxRowPoints(r)}</div>
+                  </div>
+                );
+              })}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px" }}>
+                <span style={{ fontSize: 12, color: C.textDim, fontWeight: 700, width: 70 }}>Penalties</span>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {Array.from({ length: QX_MAX_PENALTIES }).map((_, i) => (
+                    <button key={i} onClick={() => setPenalty(p.id, i)} style={{ ...pill, width: 36, height: 36, padding: 0, borderRadius: 8, fontSize: 16, fontWeight: 800, textAlign: "center", background: i < p.pen ? C.red + "33" : C.surface, color: i < p.pen ? C.red : C.textDim + "66", border: `1px solid ${i < p.pen ? C.red + "88" : C.border}` }}>{i < p.pen ? "✗" : ""}</button>
+                  ))}
+                </div>
+                <div style={{ flex: 1, textAlign: "right", fontSize: 18, fontWeight: 800, color: p.pen > 0 ? C.red : C.textDim }}>{p.pen > 0 ? `−${p.pen * QX_PENALTY}` : "0"}</div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
