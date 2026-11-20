@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, Fragment } from "react";
 import { load, save } from "./storage.js";
 
 const PHASES = { IDLE: "idle", TOEPING: "toeping", PICK_WINNER: "pick_winner" };
@@ -1181,7 +1181,7 @@ function QwixxGameScreen({ game, initialPlayers, recentNames, addToRecent, onExi
   const hid = "•••";
   const cellFont = "min(6.2vw, 5.5vh)";
   return (
-    <div style={{ height: "100dvh", display: "flex", flexDirection: "column", paddingTop: `calc(${safeTop} + 4px)`, paddingLeft: 4, paddingRight: 4, paddingBottom: multi ? 0 : "calc(6px + env(safe-area-inset-bottom, 0px))", boxSizing: "border-box", overflow: "hidden" }}>
+    <div style={{ height: "100dvh", display: "flex", flexDirection: "column", paddingTop: "max(8px, env(safe-area-inset-top, 0px))", paddingLeft: "max(6px, env(safe-area-inset-left, 0px))", paddingRight: "max(6px, env(safe-area-inset-right, 0px))", paddingBottom: multi ? 0 : "calc(6px + env(safe-area-inset-bottom, 0px))", boxSizing: "border-box", overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6, padding: "0 4px", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 8, minWidth: 0 }}>
           <span style={{ fontSize: 20, fontWeight: 800, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</span>
@@ -1236,15 +1236,40 @@ function QwixxGameScreen({ game, initialPlayers, recentNames, addToRecent, onExi
         })}
       </div>
 
-      <div style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 6, marginTop: 6, padding: "6px 8px", background: C.surface, borderRadius: 10 }}>
-        <span style={{ fontSize: 12, color: C.textDim, fontWeight: 700 }}>Penalties</span>
-        {Array.from({ length: QX_MAX_PENALTIES }).map((_, i) => (
-          <button key={i} onClick={() => setPenalty(i)} style={{ ...pill, width: 34, height: 34, padding: 0, borderRadius: 8, fontSize: 16, fontWeight: 800, textAlign: "center", background: i < p.pen ? C.red + "33" : C.card, color: i < p.pen ? C.red : C.textDim + "66", border: `1px solid ${i < p.pen ? C.red + "88" : C.border}` }}>{i < p.pen ? "✗" : ""}</button>
-        ))}
-        {showScore && <div style={{ flex: 1, display: "flex", justifyContent: "flex-end", gap: 10, fontSize: 15, fontWeight: 900 }}>
-          {QX_ROWS.map((row) => <span key={row.key} style={{ color: row.color }}>{qxRowPoints(p, row.key)}</span>)}
-          {p.pen > 0 && <span style={{ color: C.red }}>−{p.pen * QX_PENALTY}</span>}
-        </div>}
+      <div style={{ flexShrink: 0, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 6, padding: "6px 8px", background: C.surface, borderRadius: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ fontSize: 12, color: C.textDim, fontWeight: 700 }}>Penalties</span>
+          {Array.from({ length: QX_MAX_PENALTIES }).map((_, i) => (
+            <button key={i} onClick={() => setPenalty(i)} style={{ ...pill, width: 34, height: 34, padding: 0, borderRadius: 8, fontSize: 16, fontWeight: 800, textAlign: "center", background: i < p.pen ? C.red + "33" : C.card, color: i < p.pen ? C.red : C.textDim + "66", border: `1px solid ${i < p.pen ? C.red + "88" : C.border}` }}>{i < p.pen ? "✗" : ""}</button>
+          ))}
+        </div>
+        {showScore && (
+          // Score like the paper sheet: points per colour (from the number of crosses) − penalties = total
+          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 5, fontWeight: 900 }}>
+            {QX_ROWS.map((row, i) => {
+              const m = qxCount(p, row.key) + (p.marks[row.key][QX_LAST] ? 1 : 0);
+              return (
+                <Fragment key={row.key}>
+                  {i > 0 && <span style={{ color: C.textDim, fontSize: 16 }}>+</span>}
+                  <div style={{ minWidth: 38, textAlign: "center", border: `2px solid ${row.color}`, borderRadius: 8, padding: "2px 4px", lineHeight: 1.1 }}>
+                    <div style={{ fontSize: 17, color: row.color }}>{qxRowPoints(p, row.key)}</div>
+                    <div style={{ fontSize: 9, color: C.textDim, fontWeight: 700 }}>{m}✕</div>
+                  </div>
+                </Fragment>
+              );
+            })}
+            <span style={{ color: C.textDim, fontSize: 16 }}>−</span>
+            <div style={{ minWidth: 38, textAlign: "center", border: `2px solid ${C.red}88`, borderRadius: 8, padding: "2px 4px", lineHeight: 1.1 }}>
+              <div style={{ fontSize: 17, color: C.red }}>{p.pen * QX_PENALTY}</div>
+              <div style={{ fontSize: 9, color: C.textDim, fontWeight: 700 }}>{p.pen}× −5</div>
+            </div>
+            <span style={{ color: C.textDim, fontSize: 16 }}>=</span>
+            <div style={{ minWidth: 48, textAlign: "center", border: `2px solid ${C.accent}`, background: C.accent + "22", borderRadius: 8, padding: "2px 6px", lineHeight: 1.1 }}>
+              <div style={{ fontSize: 20, color: C.accent }}>{qxTotal(p)}</div>
+              <div style={{ fontSize: 9, color: C.textDim, fontWeight: 700 }}>total</div>
+            </div>
+          </div>
+        )}
       </div>
 
       {multi && (
