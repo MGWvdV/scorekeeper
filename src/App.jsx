@@ -170,7 +170,7 @@ function SetupScreen({ game, players, setPlayers, settings, updateSetting, recen
   const removePlayer = (id) => setPlayers(players.filter((p) => p.id !== id));
   const movePlayer = (i, d) => { const n = [...players]; const s = i + d; if (s < 0 || s >= n.length) return; [n[i], n[s]] = [n[s], n[i]]; setPlayers(n); };
   const suggestions = recentNames.filter((n) => !players.find((p) => p.name === n) && (nameInput === "" || n.toLowerCase().includes(nameInput.toLowerCase())));
-  const minPlayers = game.id === "counter" ? 1 : 2;
+  const minPlayers = game.id === "counter" || game.id === "qwixx" ? 1 : 2;
 
   return (
     <div style={{ paddingTop: `calc(${safeTop} + 20px)`, paddingLeft: 20, paddingRight: 20, paddingBottom: 40 }}>
@@ -239,6 +239,9 @@ function GameMenu({ onAddPlayer, onSettings, onReset, onExit }) {
   );
 }
 
+// Older versions stored a plain on/off toggle that meant +100
+const yzBonusMode = (s) => s.yzBonus || (s.yzMultiple ? "100" : "off");
+
 function ToggleRow({ label, value, onChange }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 12, background: C.surface, padding: "10px 16px", borderRadius: 12 }}>
@@ -278,7 +281,7 @@ function SettingsPanel({ gameId, settings, updateSetting, inGame }) {
         <NumStepper label="Penalty over (per diff)" value={settings.bbOverPenalty} onChange={(v) => updateSetting("bbOverPenalty", v)} min={-10} max={0} color={C.red} />
         {!inGame && <ToggleRow label="No-trump round at max cards" value={settings.bbNoTrumpRound} onChange={(v) => updateSetting("bbNoTrumpRound", v)} />}
       </>)}
-      {gameId === "yahtzee" && <ToggleRow label="Allow multiple Yahtzees (+100 bonus)" value={settings.yzMultiple} onChange={(v) => updateSetting("yzMultiple", v)} />}
+      {gameId === "yahtzee" && <ChoiceRow label="Extra Yahtzees (only if your Yahtzee box has 50)" value={yzBonusMode(settings)} options={[["off", "Not allowed"], ["50", "+50 each"], ["100", "+100 each"]]} onChange={(v) => updateSetting("yzBonus", v)} />}
     </div>
   );
 }
@@ -304,8 +307,10 @@ function StatsScreen({ gameLog, onBack, onClear }) {
   const filters = [["all", "All"], ["toepen", "Toepen"], ["boerenbridge", "Boerenbridge"], ["yahtzee", "Yahtzee"], ["qwixx", "Qwixx"]];
   const entries = gameLog.filter((e) => filter === "all" || e.game === filter);
 
+  const [open, setOpen] = useState(null);
   const byPlayer = {};
-  entries.forEach((e) => e.results.forEach((r) => {
+  // Solo games (1 player) have no opponent, so they don't count towards win/lose
+  entries.filter((e) => e.results.length > 1).forEach((e) => e.results.forEach((r) => {
     const k = r.name.trim().toLowerCase();
     if (!byPlayer[k]) byPlayer[k] = { name: r.name, played: 0, won: 0, form: [], perGame: {} };
     const s = byPlayer[k];
@@ -316,6 +321,21 @@ function StatsScreen({ gameLog, onBack, onClear }) {
   }));
   const rows = Object.values(byPlayer).sort((a, b) => b.won - a.won || (b.won / b.played) - (a.won / a.played));
   const fmtDate = (t) => new Date(t).toLocaleDateString("nl-NL", { day: "numeric", month: "short" });
+  const fmtDateTime = (t) => new Date(t).toLocaleString("nl-NL", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  // Final standings: winners first, then by score (in toepen a low score is better)
+  const ranked = (e) => [...e.results].sort((a, b) => (b.won - a.won) || (e.game === "toepen" ? a.score - b.score : b.score - a.score));
+  const Standings = ({ e }) => (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      {ranked(e).map((r, i) => (
+        <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14 }}>
+          <span style={{ width: 22, fontWeight: 800, color: r.won ? C.accent : C.textDim }}>{r.won ? "🏆" : `#${i + 1}`}</span>
+          <span style={{ flex: 1, fontWeight: r.won ? 800 : 600 }}>{r.name}</span>
+          <span style={{ fontWeight: 800, color: r.won ? C.accent : C.text }}>{r.score ?? "—"}</span>
+        </div>
+      ))}
+    </div>
+  );
+  const lastGame = entries[entries.length - 1];
 
   return (
     <div style={{ paddingTop: `calc(${safeTop} + 20px)`, paddingLeft: 20, paddingRight: 20, paddingBottom: 40 }}>
@@ -327,7 +347,14 @@ function StatsScreen({ gameLog, onBack, onClear }) {
           <button key={val} onClick={() => setFilter(val)} style={{ ...pill, background: filter === val ? C.accent + "33" : C.surface, color: filter === val ? C.accent : C.textDim, border: `1px solid ${filter === val ? C.accent + "66" : C.border}` }}>{text}</button>
         ))}
       </div>
-      {rows.length === 0 ? <p style={{ color: C.textDim, fontSize: 14 }}>No games yet. Finish a game and tap "Save result & Home" to start tracking.</p> : (
+      {lastGame && <div style={{ background: C.card, borderRadius: 14, padding: "14px 16px", border: `1px solid ${C.accent}55`, marginBottom: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
+          <span style={{ fontSize: 11, color: C.accent, textTransform: "uppercase", letterSpacing: 1, fontWeight: 700 }}>Last game · {GAME_INFO[lastGame.game]?.emoji} {GAME_INFO[lastGame.game]?.name}</span>
+          <span style={{ fontSize: 11, color: C.textDim }}>{fmtDateTime(lastGame.t)}</span>
+        </div>
+        <Standings e={lastGame} />
+      </div>}
+      {rows.length === 0 ? <p style={{ color: C.textDim, fontSize: 14 }}>{entries.length ? "Only solo games so far — win rates need 2+ players." : "No games yet. Finish a game and tap \"Save result & Home\" to start tracking."}</p> : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 24 }}>
           {rows.map((s) => {
             const rate = Math.round((s.won / s.played) * 100);
@@ -355,10 +382,15 @@ function StatsScreen({ gameLog, onBack, onClear }) {
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {[...entries].reverse().slice(0, 15).map((e) => {
             const winners = e.results.filter((r) => r.won).map((r) => r.name).join(", ");
-            return <div key={e.id} style={{ display: "flex", gap: 8, fontSize: 13, alignItems: "center" }}>
-              <span style={{ color: C.textDim, fontSize: 11, width: 44 }}>{fmtDate(e.t)}</span>
-              <span>{GAME_INFO[e.game]?.emoji}</span>
-              <span style={{ flex: 1 }}>🏆 {winners} <span style={{ color: C.textDim }}>({e.results.length} players)</span></span>
+            const solo = e.results.length === 1;
+            return <div key={e.id}>
+              <div onClick={() => setOpen(open === e.id ? null : e.id)} style={{ display: "flex", gap: 8, fontSize: 13, alignItems: "center", cursor: "pointer", padding: "2px 0" }}>
+                <span style={{ color: C.textDim, fontSize: 11, width: 44 }}>{fmtDate(e.t)}</span>
+                <span>{GAME_INFO[e.game]?.emoji}</span>
+                <span style={{ flex: 1 }}>{solo ? `${e.results[0].name}: ${e.results[0].score}` : <>🏆 {winners} <span style={{ color: C.textDim }}>({e.results.length} players)</span></>}</span>
+                {!solo && <span style={{ color: C.textDim, fontSize: 11 }}>{open === e.id ? "▲" : "▼"}</span>}
+              </div>
+              {open === e.id && !solo && <div style={{ margin: "6px 0 8px 52px" }}><Standings e={e} /></div>}
             </div>;
           })}
         </div>
@@ -850,15 +882,34 @@ function YahtzeeGameScreen({ game, initialPlayers, settings, updateSetting, rece
   const [finished, setFinished] = useState(init.finished || false);
   const [showMenu, setShowMenu] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [history, setHistory] = useState(init.history || []);
+  const [last, setLast] = useState(init.last || null); // last filled cell { pid, key }, highlighted
+  const bonusMode = yzBonusMode(settings);
+  const bonusPts = bonusMode === "off" ? 0 : parseInt(bonusMode);
 
-  useAutoSave("activeGame", { gameId: "yahtzee", players, finished });
+  useAutoSave("activeGame", { gameId: "yahtzee", players, finished, history: history.slice(-40), last });
 
+  const pushHistory = () => setHistory((h) => [...h.slice(-40), JSON.parse(JSON.stringify({ players, last }))]);
+  const handleUndo = () => {
+    if (!history.length) return;
+    const prev = history[history.length - 1];
+    setPlayers(prev.players); setLast(prev.last);
+    setHistory((h) => h.slice(0, -1));
+  };
   const setScore = (pid, key, val) => {
-    setPlayers(players.map((p) => p.id !== pid ? p : { ...p, scores: { ...p.scores, [key]: val } }));
+    const cur = players.find((p) => p.id === pid)?.scores[key];
+    if (cur !== val) {
+      pushHistory();
+      setPlayers(players.map((p) => p.id !== pid ? p : { ...p, scores: { ...p.scores, [key]: val } }));
+      setLast(val === null ? null : { pid, key });
+    }
     setEditingCell(null); setEditValue("");
   };
   const addYahtzeeBonus = (pid) => {
-    setPlayers(players.map((p) => p.id === pid ? { ...p, scores: { ...p.scores, yahtzeeBonus: p.scores.yahtzeeBonus + 100 } } : p));
+    if (!bonusPts) return;
+    pushHistory();
+    setPlayers(players.map((p) => p.id === pid ? { ...p, scores: { ...p.scores, yahtzeeBonus: (p.scores.yahtzeeBonus || 0) + bonusPts } } : p));
+    setLast({ pid, key: "yahtzeeBonus" });
   };
   const calcUpperTotal = (scores) => YZ_UPPER.reduce((s, c) => s + (scores[c.key] || 0), 0);
   const calcUpperBonus = (scores) => calcUpperTotal(scores) >= 63 ? 35 : 0;
@@ -868,7 +919,7 @@ function YahtzeeGameScreen({ game, initialPlayers, settings, updateSetting, rece
   const confirmEdit = () => { if (!editingCell) return; const val = editValue.trim() === "" ? null : parseInt(editValue); if (editValue.trim() !== "" && isNaN(val)) return; setScore(editingCell.playerId, editingCell.key, val); };
   const closeEdit = () => { setEditingCell(null); setEditValue(""); };
   const sorted = [...players].sort((a, b) => calcGrandTotal(b.scores) - calcGrandTotal(a.scores));
-  const handleReset = () => { setPlayers(players.map((p) => ({ ...p, scores: initScores() }))); setEditingCell(null); setEditValue(""); setFinished(false); setShowMenu(false); };
+  const handleReset = () => { pushHistory(); setPlayers(players.map((p) => ({ ...p, scores: initScores() }))); setLast(null); setEditingCell(null); setEditValue(""); setFinished(false); setShowMenu(false); };
   const saveAndHome = () => { const top = sorted[0] ? calcGrandTotal(sorted[0].scores) : 0; onFinish("yahtzee", players.map((p) => ({ name: p.name, score: calcGrandTotal(p.scores), won: calcGrandTotal(p.scores) === top }))); };
 
   if (finished) {
@@ -897,7 +948,8 @@ function YahtzeeGameScreen({ game, initialPlayers, settings, updateSetting, rece
   const renderScoreCell = (p, catKey) => {
     const v = p.scores[catKey];
     const struck = v === 0;
-    return <button onClick={() => startEdit(p.id, catKey)} style={{ ...pill, padding: "6px 2px", width: "100%", fontSize: 14, fontWeight: 700, background: v !== null ? C.card : C.surface, color: v === null ? C.textDim + "66" : struck ? C.red : C.text, border: `1px solid ${C.border}`, borderRadius: 6, minWidth: 0 }}>{v === null ? "—" : struck ? "✗" : v}</button>;
+    const isLast = last && last.pid === p.id && last.key === catKey;
+    return <button onClick={() => startEdit(p.id, catKey)} style={{ ...pill, padding: "6px 2px", width: "100%", fontSize: 14, fontWeight: 700, background: isLast ? C.accent + "40" : v !== null ? C.card : C.surface, color: v === null ? C.textDim + "66" : struck ? C.red : C.text, border: isLast ? `2px solid ${C.accent}` : `1px solid ${C.border}`, borderRadius: 6, minWidth: 0 }}>{v === null ? "—" : struck ? "✗" : v}</button>;
   };
 
   // Bottom sheet for entering a score: fixed-score categories get one tap for the standard points, every category can be struck (0)
@@ -936,6 +988,7 @@ function YahtzeeGameScreen({ game, initialPlayers, settings, updateSetting, rece
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
         <h2 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>{game.emoji} Yahtzee</h2>
         <div style={{ display: "flex", gap: 6 }}>
+          <button onClick={handleUndo} disabled={!history.length} style={{ ...ctrlBtn, background: C.surface, color: history.length ? C.text : C.textDim, border: `1px solid ${C.border}`, opacity: history.length ? 1 : 0.4 }}>↩ Undo</button>
           <button onClick={() => setFinished(true)} style={{ ...ctrlBtn, background: `linear-gradient(135deg, ${C.orange}, #c87830)`, color: "#fff" }}>Finish</button>
           <button onClick={() => setShowMenu(!showMenu)} style={{ ...ctrlBtn, background: C.surface, color: C.text, border: `1px solid ${C.border}`, fontSize: 18, padding: "8px 14px" }}>⋮</button>
         </div>
@@ -973,14 +1026,14 @@ function YahtzeeGameScreen({ game, initialPlayers, settings, updateSetting, rece
                 {players.map((p) => <td key={p.id} style={{ padding: "4px 4px", textAlign: "center", borderBottom: `1px solid ${C.border}22` }}>{renderScoreCell(p, cat.key)}</td>)}
               </tr>
             ))}
-            {settings.yzMultiple && (
+            {(bonusPts > 0 || players.some((p) => p.scores.yahtzeeBonus > 0)) && (
               <tr>
                 <td style={{ padding: "6px 4px", fontWeight: 600, color: C.text, fontSize: 11, position: "sticky", left: 0, background: C.bg, whiteSpace: "nowrap" }}>Yz bonus</td>
                 {players.map((p) => (
                   <td key={p.id} style={{ padding: "4px 4px", textAlign: "center" }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
                       <span style={{ fontSize: 13, fontWeight: 700, color: p.scores.yahtzeeBonus > 0 ? C.green : C.textDim }}>{p.scores.yahtzeeBonus > 0 ? `+${p.scores.yahtzeeBonus}` : "0"}</span>
-                      <button onClick={() => addYahtzeeBonus(p.id)} style={{ ...pill, padding: "2px 6px", fontSize: 11, background: C.green + "22", color: C.green, border: `1px solid ${C.green}44`, borderRadius: 6 }}>+100</button>
+                      {bonusPts > 0 && <button onClick={() => addYahtzeeBonus(p.id)} disabled={p.scores.yahtzee !== 50} style={{ ...pill, padding: "2px 6px", fontSize: 11, background: C.green + "22", color: C.green, border: `1px solid ${(last && last.pid === p.id && last.key === "yahtzeeBonus") ? C.accent : C.green + "44"}`, borderRadius: 6, opacity: p.scores.yahtzee === 50 ? 1 : 0.3 }}>+{bonusPts}</button>}
                     </div>
                   </td>
                 ))}
@@ -1000,49 +1053,84 @@ function YahtzeeGameScreen({ game, initialPlayers, settings, updateSetting, rece
 
 
 // ═══════════════════════════════════════════
-// QWIXX — count marks per colour row, lock bonus, penalties
+// QWIXX — the real scoresheet: tap the numbers you cross off
 // ═══════════════════════════════════════════
 const QX_ROWS = [
-  { key: "red", label: "Red", color: "#e05252" },
-  { key: "yellow", label: "Yellow", color: "#f2d04b" },
-  { key: "green", label: "Green", color: "#4ecb71" },
-  { key: "blue", label: "Blue", color: "#5b8def" },
+  { key: "red", label: "Red", color: "#e05252", nums: [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] },
+  { key: "yellow", label: "Yellow", color: "#f2d04b", nums: [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] },
+  { key: "green", label: "Green", color: "#4ecb71", nums: [12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2] },
+  { key: "blue", label: "Blue", color: "#5b8def", nums: [12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2] },
 ];
-const QX_MAX_MARKS = 11;   // numbers per row (the lock adds one extra mark on top)
-const QX_MIN_TO_LOCK = 5;  // you need at least 5 marks in a row before you may lock it
+const QX_LAST = 10;        // index of the last number in a row (12 or 2)
+const QX_MIN_TO_LOCK = 5;  // marks needed before the last number may be crossed
 const QX_PENALTY = 5;
 const QX_MAX_PENALTIES = 4;
 
-const qxFresh = () => ({ rows: { red: { n: 0, lock: false }, yellow: { n: 0, lock: false }, green: { n: 0, lock: false }, blue: { n: 0, lock: false } }, pen: 0 });
-// Row score: m marks (lock counts as one extra) = 1+2+...+m
-const qxRowPoints = (r) => { const m = r.n + (r.lock ? 1 : 0); return (m * (m + 1)) / 2; };
-const qxTotal = (p) => QX_ROWS.reduce((s, row) => s + qxRowPoints(p.rows[row.key]), 0) - p.pen * QX_PENALTY;
+const qxFresh = () => ({ marks: { red: Array(11).fill(false), yellow: Array(11).fill(false), green: Array(11).fill(false), blue: Array(11).fill(false) }, pen: 0 });
+const qxCount = (p, key) => p.marks[key].filter(Boolean).length;
+// Crossing the last number also earns the lock, which counts as one extra mark
+const qxRowPoints = (p, key) => { const m = qxCount(p, key) + (p.marks[key][QX_LAST] ? 1 : 0); return (m * (m + 1)) / 2; };
+const qxTotal = (p) => QX_ROWS.reduce((s, row) => s + qxRowPoints(p, row.key), 0) - p.pen * QX_PENALTY;
+const qxRightmost = (arr) => arr.lastIndexOf(true);
 
 function QwixxGameScreen({ game, initialPlayers, recentNames, addToRecent, onExit, onFinish, savedState }) {
-  const init = savedState || { players: initialPlayers.map((p) => ({ ...p, ...qxFresh() })), finished: false };
+  // Saved games from the old count-based version can't be converted; start fresh then
+  const valid = savedState && savedState.players?.[0]?.marks;
+  const init = valid ? savedState : { players: initialPlayers.map((p) => ({ ...p, ...qxFresh() })), closed: {}, active: initialPlayers[0]?.id, finished: false, history: [], last: null };
   const [players, setPlayers] = useState(init.players);
+  const [closed, setClosed] = useState(init.closed || {});      // rows closed for everyone (by a lock or manually)
+  const [active, setActive] = useState(init.active || init.players[0]?.id);
   const [finished, setFinished] = useState(init.finished || false);
+  const [history, setHistory] = useState(init.history || []);
+  const [last, setLast] = useState(init.last || null);          // last crossed cell, highlighted
   const [showMenu, setShowMenu] = useState(false);
 
-  useAutoSave("activeGame", { gameId: "qwixx", players, finished });
+  useAutoSave("activeGame", { gameId: "qwixx", players, closed, active, finished, history: history.slice(-40), last });
 
-  const update = (pid, fn) => setPlayers((ps) => ps.map((p) => p.id === pid ? fn(p) : p));
-  const setMarks = (pid, key, delta) => update(pid, (p) => {
-    const r = p.rows[key];
-    const n = Math.max(0, Math.min(QX_MAX_MARKS, r.n + delta));
-    // a row can only stay locked while it has enough marks
-    return { ...p, rows: { ...p.rows, [key]: { n, lock: r.lock && n >= QX_MIN_TO_LOCK } } };
-  });
-  const toggleLock = (pid, key) => update(pid, (p) => {
-    const r = p.rows[key];
-    if (!r.lock && r.n < QX_MIN_TO_LOCK) return p;
-    return { ...p, rows: { ...p.rows, [key]: { ...r, lock: !r.lock } } };
-  });
-  const setPenalty = (pid, i) => update(pid, (p) => ({ ...p, pen: p.pen === i + 1 ? i : i + 1 }));
-  const handleReset = () => { setPlayers(players.map((p) => ({ ...p, ...qxFresh() }))); setFinished(false); setShowMenu(false); };
+  const pushHistory = () => setHistory((h) => [...h.slice(-40), JSON.parse(JSON.stringify({ players, closed, last }))]);
+  const handleUndo = () => {
+    if (!history.length) return;
+    const prev = history[history.length - 1];
+    setPlayers(prev.players); setClosed(prev.closed); setLast(prev.last);
+    setHistory((h) => h.slice(0, -1));
+  };
+
+  const p = players.find((pl) => pl.id === active) || players[0];
+  const lockedBy = (key) => players.find((pl) => pl.marks[key][QX_LAST]);
+  const isClosed = (key) => !!closed[key] || !!lockedBy(key);
+  const closedCount = QX_ROWS.filter((r) => isClosed(r.key)).length;
+  const gameOverReason = closedCount >= 2 ? "Two rows are closed" : players.some((pl) => pl.pen >= QX_MAX_PENALTIES) ? "Someone has 4 penalties" : null;
+
+  const canMark = (pl, key, i) => {
+    const arr = pl.marks[key];
+    if (arr[i]) return false;
+    if (i <= qxRightmost(arr)) return false;                       // numbers left of a cross are gone
+    if (i === QX_LAST && qxCount(pl, key) < QX_MIN_TO_LOCK) return false;
+    if (isClosed(key) && !(lockedBy(key)?.id === pl.id)) return false;
+    return true;
+  };
+  const tapCell = (key, i) => {
+    const arr = p.marks[key];
+    // tapping your rightmost cross removes it again (quick fix for a mis-tap)
+    if (arr[i] && i === qxRightmost(arr)) {
+      pushHistory();
+      setPlayers(players.map((pl) => pl.id === p.id ? { ...pl, marks: { ...pl.marks, [key]: arr.map((v, j) => j === i ? false : v) } } : pl));
+      setLast(null);
+      return;
+    }
+    if (!canMark(p, key, i)) return;
+    pushHistory();
+    setPlayers(players.map((pl) => pl.id === p.id ? { ...pl, marks: { ...pl.marks, [key]: arr.map((v, j) => j === i ? true : v) } } : pl));
+    setLast({ pid: p.id, key, i });
+  };
+  const toggleClosed = (key) => { if (lockedBy(key)) return; pushHistory(); setClosed({ ...closed, [key]: !closed[key] }); };
+  const setPenalty = (i) => { pushHistory(); setPlayers(players.map((pl) => pl.id === p.id ? { ...pl, pen: pl.pen === i + 1 ? i : i + 1 } : pl)); setLast(null); };
+  const handleReset = () => { pushHistory(); setPlayers(players.map((pl) => ({ ...pl, ...qxFresh() }))); setClosed({}); setLast(null); setFinished(false); setShowMenu(false); };
+  const addMid = (name) => { const t = name.trim(); if (!t || players.find((pl) => pl.name === t)) return; addToRecent(t); setPlayers([...players, { id: uid(), name: t, ...qxFresh() }]); };
 
   const sorted = [...players].sort((a, b) => qxTotal(b) - qxTotal(a));
-  const saveAndHome = () => { const top = sorted[0] ? qxTotal(sorted[0]) : 0; onFinish("qwixx", players.map((p) => ({ name: p.name, score: qxTotal(p), won: qxTotal(p) === top }))); };
+  const saveAndHome = () => { const top = sorted[0] ? qxTotal(sorted[0]) : 0; onFinish("qwixx", players.map((pl) => ({ name: pl.name, score: qxTotal(pl), won: qxTotal(pl) === top }))); };
+  const [showAddPlayer, setShowAddPlayer] = useState(false);
 
   if (finished) {
     return (
@@ -1050,22 +1138,22 @@ function QwixxGameScreen({ game, initialPlayers, recentNames, addToRecent, onExi
         <h2 style={{ fontSize: 24, fontWeight: 900, marginBottom: 4, color: game.color }}>{game.emoji} Final Scores!</h2>
         <p style={{ color: C.textDim, fontSize: 13, marginBottom: 24 }}>Qwixx game complete</p>
         <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 32 }}>
-          {sorted.map((p, i) => (
-            <div key={p.id} style={{ background: i === 0 ? game.color + "22" : C.card, border: `1px solid ${i === 0 ? game.color + "55" : C.border}`, borderRadius: 12, padding: "14px 16px" }}>
+          {sorted.map((pl, i) => (
+            <div key={pl.id} style={{ background: i === 0 ? game.color + "22" : C.card, border: `1px solid ${i === 0 ? game.color + "55" : C.border}`, borderRadius: 12, padding: "14px 16px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                 <span style={{ fontSize: 20, fontWeight: 900, color: i === 0 ? game.color : C.textDim, width: 30 }}>#{i + 1}</span>
-                <span style={{ flex: 1, fontSize: 16, fontWeight: 700 }}>{p.name}</span>
-                <span style={{ fontSize: 24, fontWeight: 900, color: game.color }}>{qxTotal(p)}</span>
+                <span style={{ flex: 1, fontSize: 16, fontWeight: 700 }}>{pl.name}</span>
+                <span style={{ fontSize: 24, fontWeight: 900, color: game.color }}>{qxTotal(pl)}</span>
               </div>
               <div style={{ display: "flex", gap: 10, marginTop: 6, marginLeft: 42, fontSize: 12 }}>
-                {QX_ROWS.map((row) => <span key={row.key} style={{ color: row.color, fontWeight: 700 }}>{qxRowPoints(p.rows[row.key])}</span>)}
-                {p.pen > 0 && <span style={{ color: C.textDim }}>−{p.pen * QX_PENALTY}</span>}
+                {QX_ROWS.map((row) => <span key={row.key} style={{ color: row.color, fontWeight: 700 }}>{qxRowPoints(pl, row.key)}</span>)}
+                {pl.pen > 0 && <span style={{ color: C.textDim }}>−{pl.pen * QX_PENALTY}</span>}
               </div>
             </div>
           ))}
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={() => setFinished(false)} style={{ ...ctrlBtn, flex: 1, padding: "12px 0", background: C.surface, color: C.text, border: `1px solid ${C.border}` }}>← Back to scorecard</button>
+          <button onClick={() => setFinished(false)} style={{ ...ctrlBtn, flex: 1, padding: "12px 0", background: C.surface, color: C.text, border: `1px solid ${C.border}` }}>← Back to board</button>
           <button onClick={saveAndHome} style={{ ...ctrlBtn, flex: 1, padding: "12px 0", background: C.accent, color: C.bg, fontWeight: 800 }}>Save result & Home</button>
         </div>
         <button onClick={onExit} style={{ ...ctrlBtn, width: "100%", marginTop: 8, background: C.surface, color: C.textDim, border: `1px solid ${C.border}` }}>Discard & Home</button>
@@ -1073,52 +1161,91 @@ function QwixxGameScreen({ game, initialPlayers, recentNames, addToRecent, onExi
     );
   }
 
-  const stepBtn = { ...pill, width: 40, height: 40, padding: 0, fontSize: 22, fontWeight: 800, borderRadius: 10, textAlign: "center", lineHeight: 1 };
-
+  const multi = players.length > 1;
   return (
-    <div style={{ paddingTop: `calc(${safeTop} + 8px)`, paddingLeft: 12, paddingRight: 12, paddingBottom: 24, minHeight: "100vh" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-        <h2 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>{game.emoji} Qwixx</h2>
+    <div style={{ paddingTop: `calc(${safeTop} + 8px)`, paddingLeft: 6, paddingRight: 6, paddingBottom: multi ? 96 : 24, minHeight: "100vh" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, padding: "0 4px" }}>
+        <div>
+          <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: 1 }}>{game.emoji} Qwixx</div>
+          <div style={{ fontSize: 20, fontWeight: 800 }}>{p.name}</div>
+        </div>
         <div style={{ display: "flex", gap: 6 }}>
+          <button onClick={handleUndo} disabled={!history.length} style={{ ...ctrlBtn, background: C.surface, color: history.length ? C.text : C.textDim, border: `1px solid ${C.border}`, opacity: history.length ? 1 : 0.4 }}>↩ Undo</button>
           <button onClick={() => setFinished(true)} style={{ ...ctrlBtn, background: `linear-gradient(135deg, ${game.color}, ${C.blue})`, color: "#fff" }}>Finish</button>
           <button onClick={() => setShowMenu(!showMenu)} style={{ ...ctrlBtn, background: C.surface, color: C.text, border: `1px solid ${C.border}`, fontSize: 18, padding: "8px 14px" }}>⋮</button>
         </div>
       </div>
-      {showMenu && <GameMenu onReset={handleReset} onExit={onExit} />}
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        {players.map((p) => (
-          <div key={p.id} style={{ background: C.card, borderRadius: 14, padding: "14px 14px 12px", border: `1px solid ${C.border}` }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-              <span style={{ fontSize: 16, fontWeight: 800 }}>{p.name}</span>
-              <span style={{ fontSize: 30, fontWeight: 900, color: qxTotal(p) < 0 ? C.red : C.text }}>{qxTotal(p)}</span>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {QX_ROWS.map((row) => {
-                const r = p.rows[row.key];
-                const canLock = r.lock || r.n >= QX_MIN_TO_LOCK;
+      {showMenu && <GameMenu onAddPlayer={() => { setShowAddPlayer(true); setShowMenu(false); }} onReset={handleReset} onExit={onExit} />}
+      {showAddPlayer && <AddPlayerPopup players={players} recentNames={recentNames} onAdd={addMid} onClose={() => setShowAddPlayer(false)} />}
+      {gameOverReason && <div style={{ padding: "8px 12px", borderRadius: 8, marginBottom: 10, fontSize: 13, fontWeight: 700, background: C.accent + "22", color: C.accent, border: `1px solid ${C.accent}44` }}>{gameOverReason} — game over, tap Finish</div>}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {QX_ROWS.map((row) => {
+          const arr = p.marks[row.key];
+          const right = qxRightmost(arr);
+          const rowClosed = isClosed(row.key);
+          const myLock = arr[QX_LAST];
+          return (
+            <div key={row.key} style={{ background: row.color + (rowClosed && !myLock ? "18" : "33"), border: `1px solid ${row.color}88`, borderRadius: 10, padding: 4, display: "grid", gridTemplateColumns: "repeat(12, minmax(0, 1fr))", gap: 3, opacity: rowClosed && !myLock ? 0.55 : 1 }}>
+              {row.nums.map((num, i) => {
+                const marked = arr[i];
+                const skipped = !marked && i < right;
+                const isLast = last && last.pid === p.id && last.key === row.key && last.i === i;
+                const enabled = marked ? i === right : canMark(p, row.key, i);
                 return (
-                  <div key={row.key} style={{ display: "flex", alignItems: "center", gap: 8, background: row.color + "1f", border: `1px solid ${row.color}55`, borderRadius: 12, padding: "6px 8px" }}>
-                    <button onClick={() => setMarks(p.id, row.key, -1)} style={{ ...stepBtn, background: C.surface, color: C.textDim }}>−</button>
-                    <div style={{ width: 34, textAlign: "center", fontSize: 22, fontWeight: 900, color: row.color }}>{r.n}</div>
-                    <button onClick={() => setMarks(p.id, row.key, 1)} style={{ ...stepBtn, background: row.color, color: C.bg }}>+</button>
-                    <button onClick={() => toggleLock(p.id, row.key)} style={{ ...pill, marginLeft: 4, padding: "8px 10px", fontSize: 16, borderRadius: 10, background: r.lock ? row.color : C.surface, color: r.lock ? C.bg : C.textDim, opacity: canLock ? 1 : 0.3, border: `1px solid ${r.lock ? row.color : C.border}` }}>🔒</button>
-                    <div style={{ flex: 1, textAlign: "right", fontSize: 20, fontWeight: 800, color: C.text }}>{qxRowPoints(r)}</div>
-                  </div>
+                  <button key={i} onClick={() => tapCell(row.key, i)} style={{
+                    ...pill, padding: 0, aspectRatio: "1 / 1.15", minWidth: 0, borderRadius: 6, fontSize: 15, fontWeight: 900, textAlign: "center", position: "relative",
+                    background: marked ? C.bg : skipped ? row.color + "40" : "#f6f6f2",
+                    color: marked ? row.color : skipped ? C.bg + "88" : row.key === "yellow" ? "#8a6d00" : row.color,
+                    border: isLast ? `2px solid ${C.text}` : `1px solid ${row.color}`,
+                    boxShadow: isLast ? `0 0 0 2px ${C.accent}` : "none",
+                    opacity: !marked && !enabled ? (skipped ? 0.6 : 0.75) : 1,
+                    cursor: enabled ? "pointer" : "default",
+                  }}>
+                    {marked ? "✕" : num}
+                  </button>
                 );
               })}
-              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px" }}>
-                <span style={{ fontSize: 12, color: C.textDim, fontWeight: 700, width: 70 }}>Penalties</span>
-                <div style={{ display: "flex", gap: 6 }}>
-                  {Array.from({ length: QX_MAX_PENALTIES }).map((_, i) => (
-                    <button key={i} onClick={() => setPenalty(p.id, i)} style={{ ...pill, width: 36, height: 36, padding: 0, borderRadius: 8, fontSize: 16, fontWeight: 800, textAlign: "center", background: i < p.pen ? C.red + "33" : C.surface, color: i < p.pen ? C.red : C.textDim + "66", border: `1px solid ${i < p.pen ? C.red + "88" : C.border}` }}>{i < p.pen ? "✗" : ""}</button>
-                  ))}
-                </div>
-                <div style={{ flex: 1, textAlign: "right", fontSize: 18, fontWeight: 800, color: p.pen > 0 ? C.red : C.textDim }}>{p.pen > 0 ? `−${p.pen * QX_PENALTY}` : "0"}</div>
-              </div>
+              <button onClick={() => toggleClosed(row.key)} title="Lock / closed row" style={{ ...pill, padding: 0, aspectRatio: "1 / 1.15", minWidth: 0, borderRadius: 999, fontSize: 14, textAlign: "center", background: myLock ? row.color : rowClosed ? C.bg : "#f6f6f2", color: myLock ? C.bg : rowClosed ? row.color : row.color, border: `1px solid ${row.color}` }}>
+                {myLock ? "🔒" : rowClosed ? "✕" : "🔓"}
+              </button>
             </div>
+          );
+        })}
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, padding: "8px 10px", background: C.surface, borderRadius: 10 }}>
+        <span style={{ fontSize: 12, color: C.textDim, fontWeight: 700 }}>Penalties</span>
+        <div style={{ display: "flex", gap: 6 }}>
+          {Array.from({ length: QX_MAX_PENALTIES }).map((_, i) => (
+            <button key={i} onClick={() => setPenalty(i)} style={{ ...pill, width: 34, height: 34, padding: 0, borderRadius: 8, fontSize: 16, fontWeight: 800, textAlign: "center", background: i < p.pen ? C.red + "33" : C.card, color: i < p.pen ? C.red : C.textDim + "66", border: `1px solid ${i < p.pen ? C.red + "88" : C.border}` }}>{i < p.pen ? "✗" : ""}</button>
+          ))}
+        </div>
+        <span style={{ flex: 1, textAlign: "right", fontSize: 12, color: C.textDim }}>−5 each</span>
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 4, marginTop: 10, padding: "10px 8px", background: C.card, borderRadius: 10, border: `1px solid ${C.border}` }}>
+        {QX_ROWS.map((row) => (
+          <div key={row.key} style={{ textAlign: "center", flex: 1 }}>
+            <div style={{ fontSize: 20, fontWeight: 900, color: row.color }}>{qxRowPoints(p, row.key)}</div>
+            <div style={{ fontSize: 10, color: C.textDim }}>{qxCount(p, row.key) + (p.marks[row.key][QX_LAST] ? 1 : 0)}×</div>
           </div>
         ))}
+        <div style={{ textAlign: "center", flex: 1 }}><div style={{ fontSize: 20, fontWeight: 900, color: C.red }}>−{p.pen * QX_PENALTY}</div><div style={{ fontSize: 10, color: C.textDim }}>pen</div></div>
+        <div style={{ textAlign: "center", flex: 1.3, borderLeft: `1px solid ${C.border}` }}><div style={{ fontSize: 26, fontWeight: 900, color: C.accent }}>{qxTotal(p)}</div><div style={{ fontSize: 10, color: C.textDim }}>total</div></div>
       </div>
+      <p style={{ fontSize: 11, color: C.textDim, marginTop: 10, padding: "0 4px", lineHeight: 1.5 }}>Tap a number to cross it. Numbers left of a cross are skipped. The last number needs 5 crosses and locks the row (+1). Tap 🔓 when someone else closes a row. Tap your latest cross again to remove it.</p>
+
+      {multi && (
+        <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, background: C.bg + "f2", borderTop: `1px solid ${C.border}`, padding: "8px 8px calc(8px + env(safe-area-inset-bottom, 0px))", display: "flex", gap: 6, overflowX: "auto", zIndex: 20 }}>
+          {players.map((pl) => (
+            <button key={pl.id} onClick={() => { setActive(pl.id); window.scrollTo(0, 0); }} style={{ ...pill, flex: "1 0 auto", minWidth: 70, padding: "8px 10px", borderRadius: 10, textAlign: "center", background: pl.id === p.id ? game.color + "33" : C.surface, color: pl.id === p.id ? C.text : C.textDim, border: `1px solid ${pl.id === p.id ? game.color : C.border}` }}>
+              <div style={{ fontSize: 13, fontWeight: 800 }}>{pl.name}</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: pl.id === p.id ? game.color : C.textDim }}>{qxTotal(pl)}</div>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
