@@ -52,13 +52,13 @@ const YZ_UPPER = [
   { key: "sixes", label: "Sixes", desc: "Total of sixes" },
 ];
 const YZ_LOWER = [
-  { key: "threeOfKind", label: "3 of a Kind", short: "3 Kind", desc: "Sum all dice" },
-  { key: "fourOfKind", label: "4 of a Kind", short: "4 Kind", desc: "Sum all dice" },
-  { key: "fullHouse", label: "Full House", short: "Full H.", desc: "25 pts", fixed: 25 },
-  { key: "smStraight", label: "Small Straight", short: "Sm. Str.", desc: "30 pts", fixed: 30 },
-  { key: "lgStraight", label: "Large Straight", short: "Lg. Str.", desc: "40 pts", fixed: 40 },
-  { key: "yahtzee", label: "Yahtzee", short: "Yahtzee", desc: "50 pts", fixed: 50 },
-  { key: "chance", label: "Chance", short: "Chance", desc: "Sum all dice" },
+  { key: "threeOfKind", label: "3 of a Kind", desc: "Sum all dice" },
+  { key: "fourOfKind", label: "Carré", desc: "Sum all dice" },
+  { key: "fullHouse", label: "Full House", desc: "25 pts", fixed: 25 },
+  { key: "smStraight", label: "Small Straight", desc: "30 pts", fixed: 30 },
+  { key: "lgStraight", label: "Large Straight", desc: "40 pts", fixed: 40 },
+  { key: "yahtzee", label: "Yahtzee", desc: "50 pts", fixed: 50 },
+  { key: "chance", label: "Chance", desc: "Sum all dice" },
 ];
 const YZ_ALL = [...YZ_UPPER, ...YZ_LOWER];
 
@@ -110,7 +110,7 @@ export default function App() {
   const dismissResume = () => { clearSavedGame(); setResumeData(null); };
 
   return (
-    <div style={{ fontFamily: "'DM Sans','Avenir Next',system-ui,sans-serif", background: C.bg, color: C.text, minHeight: "100vh", maxWidth: 480, margin: "0 auto" }}>
+    <div style={{ fontFamily: "'DM Sans','Avenir Next',system-ui,sans-serif", background: C.bg, color: C.text, minHeight: "100vh", maxWidth: screen === "game" && selectedGame?.id === "qwixx" ? "none" : 480, margin: "0 auto" }}>
       {screen === "home" && <HomeScreen onSelect={startGame} onStats={() => setScreen("stats")} resumeData={resumeData} onResume={resumeGame} onDismissResume={dismissResume} />}
       {screen === "stats" && <StatsScreen gameLog={gameLog} onBack={() => setScreen("home")} onClear={() => setGameLog([])} />}
       {screen === "setup" && <SetupScreen game={selectedGame} players={players} setPlayers={setPlayers} settings={gameSettings} updateSetting={updateSetting} recentNames={recentNames} addToRecent={addToRecent} onStart={beginGame} onBack={backToHome} />}
@@ -945,11 +945,22 @@ function YahtzeeGameScreen({ game, initialPlayers, settings, updateSetting, rece
     );
   }
 
+  const tapCell = (p, catKey) => {
+    const cat = YZ_ALL.find((c) => c.key === catKey);
+    const v = p.scores[catKey];
+    if (!cat.fixed) return startEdit(p.id, catKey);
+    if (v === null) return setScore(p.id, catKey, cat.fixed);
+    if (v === cat.fixed) {
+      if (catKey === "yahtzee" && bonusPts > 0) return setEditingCell({ playerId: p.id, key: catKey });
+      return setScore(p.id, catKey, 0);
+    }
+    return setScore(p.id, catKey, null);
+  };
   const renderScoreCell = (p, catKey) => {
     const v = p.scores[catKey];
     const struck = v === 0;
     const isLast = last && last.pid === p.id && last.key === catKey;
-    return <button onClick={() => startEdit(p.id, catKey)} style={{ ...pill, padding: "6px 2px", width: "100%", fontSize: 14, fontWeight: 700, background: isLast ? C.accent + "40" : v !== null ? C.card : C.surface, color: v === null ? C.textDim + "66" : struck ? C.red : C.text, border: isLast ? `2px solid ${C.accent}` : `1px solid ${C.border}`, borderRadius: 6, minWidth: 0 }}>{v === null ? "—" : struck ? "✗" : v}</button>;
+    return <button onClick={() => tapCell(p, catKey)} style={{ ...pill, padding: "6px 2px", width: "100%", fontSize: 14, fontWeight: 700, background: isLast ? C.accent + "40" : v !== null ? C.card : C.surface, color: v === null ? C.textDim + "66" : struck ? C.red : C.text, border: isLast ? `2px solid ${C.accent}` : `1px solid ${C.border}`, borderRadius: 6, minWidth: 0 }}>{v === null ? "—" : struck ? "✗" : v}</button>;
   };
 
   // Bottom sheet for entering a score: fixed-score categories get one tap for the standard points, every category can be struck (0)
@@ -963,7 +974,12 @@ function YahtzeeGameScreen({ game, initialPlayers, settings, updateSetting, rece
           <div><div style={{ fontSize: 16, fontWeight: 800 }}>{editPlayer.name}</div><div style={{ fontSize: 12, color: C.textDim }}>{editCat.label}{editCat.fixed ? ` — ${editCat.fixed} pts` : " — " + editCat.desc.toLowerCase()}</div></div>
           <button onClick={closeEdit} style={{ ...pill, background: C.surface, color: C.textDim }}>✕</button>
         </div>
-        {editCat.fixed ? (
+        {editCat.key === "yahtzee" && editPlayer.scores.yahtzee === 50 && bonusPts > 0 ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <button onClick={() => { addYahtzeeBonus(editPlayer.id); closeEdit(); }} style={{ ...sheetBtn, background: C.green, color: C.bg }}>🎲 Extra Yahtzee +{bonusPts}</button>
+            <button onClick={() => setScore(editPlayer.id, "yahtzee", 0)} style={{ ...sheetBtn, background: C.red + "22", color: C.red, border: `1px solid ${C.red}55` }}>✗ Strike Yahtzee instead</button>
+          </div>
+        ) : editCat.fixed ? (
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={() => setScore(editPlayer.id, editCat.key, editCat.fixed)} style={{ ...sheetBtn, background: C.green, color: C.bg }}>✓ {editCat.fixed} pts</button>
             <button onClick={() => setScore(editPlayer.id, editCat.key, 0)} style={{ ...sheetBtn, background: C.red + "22", color: C.red, border: `1px solid ${C.red}55` }}>✗ Strike</button>
@@ -1005,42 +1021,41 @@ function YahtzeeGameScreen({ game, initialPlayers, settings, updateSetting, rece
             <tr><td colSpan={players.length + 1} style={{ padding: "8px 8px 4px", fontSize: 10, fontWeight: 700, color: C.textDim, textTransform: "uppercase", letterSpacing: 1 }}>Upper Section</td></tr>
             {YZ_UPPER.map((cat) => (
               <tr key={cat.key}>
-                <td style={{ padding: "6px 4px", color: C.textDim, borderBottom: `1px solid ${C.border}22`, position: "sticky", left: 0, background: C.bg, whiteSpace: "nowrap" }}><div style={{ fontWeight: 600, color: C.text, fontSize: 11 }}>{cat.short || cat.label}</div></td>
+                <td style={{ padding: "6px 4px", color: C.textDim, borderBottom: `1px solid ${C.border}22`, position: "sticky", left: 0, background: C.bg, whiteSpace: "nowrap" }}><div style={{ fontWeight: 600, color: C.text, fontSize: 11 }}>{cat.label}</div></td>
                 {players.map((p) => <td key={p.id} style={{ padding: "4px 4px", textAlign: "center", borderBottom: `1px solid ${C.border}22` }}>{renderScoreCell(p, cat.key)}</td>)}
               </tr>
             ))}
             <tr style={{ background: C.surface }}>
-              <td style={{ padding: "6px 4px", fontWeight: 700, fontSize: 11, color: C.textDim, position: "sticky", left: 0, background: C.surface, whiteSpace: "nowrap" }}>Upper</td>
+              <td style={{ padding: "6px 4px", fontWeight: 700, fontSize: 11, color: C.textDim, position: "sticky", left: 0, background: C.surface, whiteSpace: "nowrap" }}>Upper total</td>
               {players.map((p) => <td key={p.id} style={{ padding: "6px 4px", textAlign: "center", fontWeight: 800, color: C.text }}>{calcUpperTotal(p.scores)}</td>)}
             </tr>
             <tr style={{ background: C.surface }}>
-              <td style={{ padding: "4px 4px", fontSize: 11, color: C.textDim, position: "sticky", left: 0, background: C.surface, whiteSpace: "nowrap" }}>Bonus</td>
+              <td style={{ padding: "4px 4px", fontSize: 11, color: C.textDim, position: "sticky", left: 0, background: C.surface, whiteSpace: "nowrap" }}>Bonus (≥ 63)</td>
               {players.map((p) => <td key={p.id} style={{ padding: "4px 4px", textAlign: "center", fontWeight: 700, fontSize: 11, color: calcUpperBonus(p.scores) > 0 ? C.green : C.textDim }}>{calcUpperBonus(p.scores) > 0 ? "+35" : `${calcUpperTotal(p.scores)}/63`}</td>)}
             </tr>
             <tr><td colSpan={players.length + 1} style={{ padding: "8px 8px 4px", fontSize: 10, fontWeight: 700, color: C.textDim, textTransform: "uppercase", letterSpacing: 1 }}>Lower Section</td></tr>
             {YZ_LOWER.map((cat) => (
               <tr key={cat.key}>
                 <td style={{ padding: "6px 4px", color: C.textDim, borderBottom: `1px solid ${C.border}22`, position: "sticky", left: 0, background: C.bg, whiteSpace: "nowrap" }}>
-                  <div style={{ fontWeight: 600, color: C.text, fontSize: 11 }}>{cat.short}</div>
+                  <div style={{ fontWeight: 600, color: C.text, fontSize: 11 }}>{cat.label}</div>
                 </td>
                 {players.map((p) => <td key={p.id} style={{ padding: "4px 4px", textAlign: "center", borderBottom: `1px solid ${C.border}22` }}>{renderScoreCell(p, cat.key)}</td>)}
               </tr>
             ))}
             {(bonusPts > 0 || players.some((p) => p.scores.yahtzeeBonus > 0)) && (
               <tr>
-                <td style={{ padding: "6px 4px", fontWeight: 600, color: C.text, fontSize: 11, position: "sticky", left: 0, background: C.bg, whiteSpace: "nowrap" }}>Yz bonus</td>
+                <td style={{ padding: "6px 4px", fontWeight: 600, color: C.text, fontSize: 11, position: "sticky", left: 0, background: C.bg, whiteSpace: "nowrap" }}>Yahtzee bonus</td>
                 {players.map((p) => (
                   <td key={p.id} style={{ padding: "4px 4px", textAlign: "center" }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
+                    <div style={{ padding: "4px 0", borderRadius: 6, border: last && last.pid === p.id && last.key === "yahtzeeBonus" ? `2px solid ${C.accent}` : "2px solid transparent", background: last && last.pid === p.id && last.key === "yahtzeeBonus" ? C.accent + "40" : "transparent" }}>
                       <span style={{ fontSize: 13, fontWeight: 700, color: p.scores.yahtzeeBonus > 0 ? C.green : C.textDim }}>{p.scores.yahtzeeBonus > 0 ? `+${p.scores.yahtzeeBonus}` : "0"}</span>
-                      {bonusPts > 0 && <button onClick={() => addYahtzeeBonus(p.id)} disabled={p.scores.yahtzee !== 50} style={{ ...pill, padding: "2px 6px", fontSize: 11, background: C.green + "22", color: C.green, border: `1px solid ${(last && last.pid === p.id && last.key === "yahtzeeBonus") ? C.accent : C.green + "44"}`, borderRadius: 6, opacity: p.scores.yahtzee === 50 ? 1 : 0.3 }}>+{bonusPts}</button>}
                     </div>
                   </td>
                 ))}
               </tr>
             )}
             <tr style={{ background: C.card }}>
-              <td style={{ padding: "10px 4px", fontWeight: 800, fontSize: 13, color: C.accent, position: "sticky", left: 0, background: C.card, whiteSpace: "nowrap" }}>Total</td>
+              <td style={{ padding: "10px 4px", fontWeight: 800, fontSize: 13, color: C.accent, position: "sticky", left: 0, background: C.card, whiteSpace: "nowrap" }}>Grand total</td>
               {players.map((p) => <td key={p.id} style={{ padding: "10px 4px", textAlign: "center", fontWeight: 900, fontSize: 18, color: C.accent }}>{calcGrandTotal(p.scores)}</td>)}
             </tr>
           </tbody>
@@ -1084,8 +1099,9 @@ function QwixxGameScreen({ game, initialPlayers, recentNames, addToRecent, onExi
   const [history, setHistory] = useState(init.history || []);
   const [last, setLast] = useState(init.last || null);          // last crossed cell, highlighted
   const [showMenu, setShowMenu] = useState(false);
+  const [showScore, setShowScore] = useState(init.showScore ?? true);
 
-  useAutoSave("activeGame", { gameId: "qwixx", players, closed, active, finished, history: history.slice(-40), last });
+  useAutoSave("activeGame", { gameId: "qwixx", players, closed, active, finished, history: history.slice(-40), last, showScore });
 
   const pushHistory = () => setHistory((h) => [...h.slice(-40), JSON.parse(JSON.stringify({ players, closed, last }))]);
   const handleUndo = () => {
@@ -1162,31 +1178,37 @@ function QwixxGameScreen({ game, initialPlayers, recentNames, addToRecent, onExi
   }
 
   const multi = players.length > 1;
+  const hid = "•••";
+  const cellFont = "min(6.2vw, 5.5vh)";
   return (
-    <div style={{ paddingTop: `calc(${safeTop} + 8px)`, paddingLeft: 6, paddingRight: 6, paddingBottom: multi ? 96 : 24, minHeight: "100vh" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, padding: "0 4px" }}>
-        <div>
-          <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: 1 }}>{game.emoji} Qwixx</div>
-          <div style={{ fontSize: 20, fontWeight: 800 }}>{p.name}</div>
+    <div style={{ height: "100dvh", display: "flex", flexDirection: "column", paddingTop: `calc(${safeTop} + 4px)`, paddingLeft: 4, paddingRight: 4, paddingBottom: multi ? 0 : "calc(6px + env(safe-area-inset-bottom, 0px))", boxSizing: "border-box", overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6, padding: "0 4px", flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 8, minWidth: 0 }}>
+          <span style={{ fontSize: 20, fontWeight: 800, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</span>
+          <span style={{ fontSize: 20, fontWeight: 900, color: C.accent }}>{showScore ? qxTotal(p) : ""}</span>
         </div>
-        <div style={{ display: "flex", gap: 6 }}>
-          <button onClick={handleUndo} disabled={!history.length} style={{ ...ctrlBtn, background: C.surface, color: history.length ? C.text : C.textDim, border: `1px solid ${C.border}`, opacity: history.length ? 1 : 0.4 }}>↩ Undo</button>
-          <button onClick={() => setFinished(true)} style={{ ...ctrlBtn, background: `linear-gradient(135deg, ${game.color}, ${C.blue})`, color: "#fff" }}>Finish</button>
-          <button onClick={() => setShowMenu(!showMenu)} style={{ ...ctrlBtn, background: C.surface, color: C.text, border: `1px solid ${C.border}`, fontSize: 18, padding: "8px 14px" }}>⋮</button>
+        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+          <button onClick={() => setShowScore(!showScore)} title={showScore ? "Hide score" : "Show score"} style={{ ...ctrlBtn, padding: "8px 10px", background: showScore ? C.accent + "33" : C.surface, color: showScore ? C.accent : C.textDim, border: `1px solid ${showScore ? C.accent + "66" : C.border}`, display: "flex", alignItems: "center" }}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z" /><circle cx="12" cy="12" r="3" />{!showScore && <line x1="3" y1="3" x2="21" y2="21" />}</svg>
+          </button>
+          <button onClick={handleUndo} disabled={!history.length} style={{ ...ctrlBtn, padding: "8px 12px", background: C.surface, color: history.length ? C.text : C.textDim, border: `1px solid ${C.border}`, opacity: history.length ? 1 : 0.4 }}>↩</button>
+          <button onClick={() => setFinished(true)} style={{ ...ctrlBtn, padding: "8px 12px", background: `linear-gradient(135deg, ${game.color}, ${C.blue})`, color: "#fff" }}>Finish</button>
+          <button onClick={() => setShowMenu(!showMenu)} style={{ ...ctrlBtn, background: C.surface, color: C.text, border: `1px solid ${C.border}`, fontSize: 18, padding: "6px 12px" }}>⋮</button>
         </div>
       </div>
       {showMenu && <GameMenu onAddPlayer={() => { setShowAddPlayer(true); setShowMenu(false); }} onReset={handleReset} onExit={onExit} />}
       {showAddPlayer && <AddPlayerPopup players={players} recentNames={recentNames} onAdd={addMid} onClose={() => setShowAddPlayer(false)} />}
-      {gameOverReason && <div style={{ padding: "8px 12px", borderRadius: 8, marginBottom: 10, fontSize: 13, fontWeight: 700, background: C.accent + "22", color: C.accent, border: `1px solid ${C.accent}44` }}>{gameOverReason} — game over, tap Finish</div>}
+      {gameOverReason && <div style={{ padding: "6px 10px", borderRadius: 8, marginBottom: 6, fontSize: 13, fontWeight: 700, background: C.accent + "22", color: C.accent, border: `1px solid ${C.accent}44`, flexShrink: 0 }}>{gameOverReason} — game over, tap Finish</div>}
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      {/* The board takes all remaining height: four equal rows */}
+      <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 5 }}>
         {QX_ROWS.map((row) => {
           const arr = p.marks[row.key];
           const right = qxRightmost(arr);
           const rowClosed = isClosed(row.key);
           const myLock = arr[QX_LAST];
           return (
-            <div key={row.key} style={{ background: row.color + (rowClosed && !myLock ? "18" : "33"), border: `1px solid ${row.color}88`, borderRadius: 10, padding: 4, display: "grid", gridTemplateColumns: "repeat(12, minmax(0, 1fr))", gap: 3, opacity: rowClosed && !myLock ? 0.55 : 1 }}>
+            <div key={row.key} style={{ flex: 1, minHeight: 0, background: row.color + (rowClosed && !myLock ? "18" : "33"), border: `1px solid ${row.color}88`, borderRadius: 10, padding: 4, display: "grid", gridTemplateColumns: "repeat(12, minmax(0, 1fr))", gap: 3, opacity: rowClosed && !myLock ? 0.55 : 1 }}>
               {row.nums.map((num, i) => {
                 const marked = arr[i];
                 const skipped = !marked && i < right;
@@ -1194,7 +1216,7 @@ function QwixxGameScreen({ game, initialPlayers, recentNames, addToRecent, onExi
                 const enabled = marked ? i === right : canMark(p, row.key, i);
                 return (
                   <button key={i} onClick={() => tapCell(row.key, i)} style={{
-                    ...pill, padding: 0, aspectRatio: "1 / 1.15", minWidth: 0, borderRadius: 6, fontSize: 15, fontWeight: 900, textAlign: "center", position: "relative",
+                    ...pill, padding: 0, height: "100%", minWidth: 0, minHeight: 0, borderRadius: 6, fontSize: cellFont, fontWeight: 900, textAlign: "center",
                     background: marked ? C.bg : skipped ? row.color + "40" : "#f6f6f2",
                     color: marked ? row.color : skipped ? C.bg + "88" : row.key === "yellow" ? "#8a6d00" : row.color,
                     border: isLast ? `2px solid ${C.text}` : `1px solid ${row.color}`,
@@ -1206,7 +1228,7 @@ function QwixxGameScreen({ game, initialPlayers, recentNames, addToRecent, onExi
                   </button>
                 );
               })}
-              <button onClick={() => toggleClosed(row.key)} title="Lock / closed row" style={{ ...pill, padding: 0, aspectRatio: "1 / 1.15", minWidth: 0, borderRadius: 999, fontSize: 14, textAlign: "center", background: myLock ? row.color : rowClosed ? C.bg : "#f6f6f2", color: myLock ? C.bg : rowClosed ? row.color : row.color, border: `1px solid ${row.color}` }}>
+              <button onClick={() => toggleClosed(row.key)} title="Lock / closed row" style={{ ...pill, padding: 0, height: "100%", minWidth: 0, minHeight: 0, borderRadius: 999, fontSize: "min(5vw, 4.5vh)", textAlign: "center", background: myLock ? row.color : rowClosed ? C.bg : "#f6f6f2", color: row.color, border: `1px solid ${row.color}` }}>
                 {myLock ? "🔒" : rowClosed ? "✕" : "🔓"}
               </button>
             </div>
@@ -1214,34 +1236,23 @@ function QwixxGameScreen({ game, initialPlayers, recentNames, addToRecent, onExi
         })}
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, padding: "8px 10px", background: C.surface, borderRadius: 10 }}>
+      <div style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 6, marginTop: 6, padding: "6px 8px", background: C.surface, borderRadius: 10 }}>
         <span style={{ fontSize: 12, color: C.textDim, fontWeight: 700 }}>Penalties</span>
-        <div style={{ display: "flex", gap: 6 }}>
-          {Array.from({ length: QX_MAX_PENALTIES }).map((_, i) => (
-            <button key={i} onClick={() => setPenalty(i)} style={{ ...pill, width: 34, height: 34, padding: 0, borderRadius: 8, fontSize: 16, fontWeight: 800, textAlign: "center", background: i < p.pen ? C.red + "33" : C.card, color: i < p.pen ? C.red : C.textDim + "66", border: `1px solid ${i < p.pen ? C.red + "88" : C.border}` }}>{i < p.pen ? "✗" : ""}</button>
-          ))}
-        </div>
-        <span style={{ flex: 1, textAlign: "right", fontSize: 12, color: C.textDim }}>−5 each</span>
-      </div>
-
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 4, marginTop: 10, padding: "10px 8px", background: C.card, borderRadius: 10, border: `1px solid ${C.border}` }}>
-        {QX_ROWS.map((row) => (
-          <div key={row.key} style={{ textAlign: "center", flex: 1 }}>
-            <div style={{ fontSize: 20, fontWeight: 900, color: row.color }}>{qxRowPoints(p, row.key)}</div>
-            <div style={{ fontSize: 10, color: C.textDim }}>{qxCount(p, row.key) + (p.marks[row.key][QX_LAST] ? 1 : 0)}×</div>
-          </div>
+        {Array.from({ length: QX_MAX_PENALTIES }).map((_, i) => (
+          <button key={i} onClick={() => setPenalty(i)} style={{ ...pill, width: 34, height: 34, padding: 0, borderRadius: 8, fontSize: 16, fontWeight: 800, textAlign: "center", background: i < p.pen ? C.red + "33" : C.card, color: i < p.pen ? C.red : C.textDim + "66", border: `1px solid ${i < p.pen ? C.red + "88" : C.border}` }}>{i < p.pen ? "✗" : ""}</button>
         ))}
-        <div style={{ textAlign: "center", flex: 1 }}><div style={{ fontSize: 20, fontWeight: 900, color: C.red }}>−{p.pen * QX_PENALTY}</div><div style={{ fontSize: 10, color: C.textDim }}>pen</div></div>
-        <div style={{ textAlign: "center", flex: 1.3, borderLeft: `1px solid ${C.border}` }}><div style={{ fontSize: 26, fontWeight: 900, color: C.accent }}>{qxTotal(p)}</div><div style={{ fontSize: 10, color: C.textDim }}>total</div></div>
+        {showScore && <div style={{ flex: 1, display: "flex", justifyContent: "flex-end", gap: 10, fontSize: 15, fontWeight: 900 }}>
+          {QX_ROWS.map((row) => <span key={row.key} style={{ color: row.color }}>{qxRowPoints(p, row.key)}</span>)}
+          {p.pen > 0 && <span style={{ color: C.red }}>−{p.pen * QX_PENALTY}</span>}
+        </div>}
       </div>
-      <p style={{ fontSize: 11, color: C.textDim, marginTop: 10, padding: "0 4px", lineHeight: 1.5 }}>Tap a number to cross it. Numbers left of a cross are skipped. The last number needs 5 crosses and locks the row (+1). Tap 🔓 when someone else closes a row. Tap your latest cross again to remove it.</p>
 
       {multi && (
-        <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, background: C.bg + "f2", borderTop: `1px solid ${C.border}`, padding: "8px 8px calc(8px + env(safe-area-inset-bottom, 0px))", display: "flex", gap: 6, overflowX: "auto", zIndex: 20 }}>
+        <div style={{ flexShrink: 0, display: "flex", gap: 6, overflowX: "auto", marginTop: 6, padding: "0 0 calc(6px + env(safe-area-inset-bottom, 0px))" }}>
           {players.map((pl) => (
-            <button key={pl.id} onClick={() => { setActive(pl.id); window.scrollTo(0, 0); }} style={{ ...pill, flex: "1 0 auto", minWidth: 70, padding: "8px 10px", borderRadius: 10, textAlign: "center", background: pl.id === p.id ? game.color + "33" : C.surface, color: pl.id === p.id ? C.text : C.textDim, border: `1px solid ${pl.id === p.id ? game.color : C.border}` }}>
+            <button key={pl.id} onClick={() => setActive(pl.id)} style={{ ...pill, flex: "1 0 auto", minWidth: 70, padding: "8px 10px", borderRadius: 10, textAlign: "center", background: pl.id === p.id ? game.color + "33" : C.surface, color: pl.id === p.id ? C.text : C.textDim, border: `1px solid ${pl.id === p.id ? game.color : C.border}` }}>
               <div style={{ fontSize: 13, fontWeight: 800 }}>{pl.name}</div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: pl.id === p.id ? game.color : C.textDim }}>{qxTotal(pl)}</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: pl.id === p.id ? game.color : C.textDim }}>{showScore ? qxTotal(pl) : hid}</div>
             </button>
           ))}
         </div>
